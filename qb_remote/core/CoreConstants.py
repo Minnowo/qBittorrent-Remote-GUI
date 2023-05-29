@@ -1,4 +1,3 @@
-
 import datetime
 import time
 import sys
@@ -15,3 +14,12 @@ START_TIME_PRETTY = datetime.datetime.strftime(START_TIME_DATE, "%Y-%m-%d %H:%M:
 BRAND = "qBittorrent Remote GUI"
 
 TORRENT_CACHE_TIME_SECONDS = 120
+
+
+
+
+
+TORRENT_PRIORITY_DO_NOT_DOWNLOAD = 0
+TORRENT_PRIORITY_NORMAL = 1
+TORRENT_PRIORITY_HIGH = 6
+TORRENT_PRIORITY_MAXIMUM = 7
