@@ -57,6 +57,38 @@ def get_pretty_download_priority(priority):
     return "Unknown"
 
 
+def torrent_state_to_pretty(state_: str):
+    state = state_.lower()
+
+    if state == "stalledup":
+        return "Seeding"
+
+    if state == "stalled" or state == "stalleddown":
+        return "Stalled"
+
+    if state == "downloading":
+        return "Downloading"
+
+    if state == "pauseddl":
+        return "Paused"
+
+    if state == "uploading":
+        return "Uploading"
+
+    return state_
+
+
+from typing import MutableMapping
+
+
+def update_dictionary_no_key_remove(dicta: MutableMapping, dictb: MutableMapping):
+    for key, value in dictb.items():
+        if key in dicta and isinstance(dicta[key], MutableMapping) and isinstance(value, dict):
+            update_dictionary_no_key_remove(dicta[key], value)
+        else:
+            dicta[key] = value
+
+
 def get_create_time():
     if CC.PSUTIL_OK:
         try:
@@ -134,8 +166,8 @@ def time_delta_until_time_precise(t):
 def hours_to_seconds(time_hours: float):
     return time_hours * 60 * 60
 
-def to_human_int(num):
 
+def to_human_int(num):
     num = int(num)
 
     text = "{:,}".format(num)
@@ -143,23 +175,17 @@ def to_human_int(num):
     return text
 
 
-
 def time_delta_to_pretty_time_delta(seconds, show_seconds=True):
-
     if seconds is None:
-
         return "per month"
 
     if seconds == 0:
-
         return "0 seconds"
 
     if seconds < 0:
-
         seconds = abs(seconds)
 
     if seconds >= 60:
-
         seconds = int(seconds)
 
         MINUTE = 60
@@ -177,75 +203,62 @@ def time_delta_to_pretty_time_delta(seconds, show_seconds=True):
         ]
 
         if show_seconds:
-
             lines.append(("second", 1))
 
         result_components = []
 
-        for (time_string, duration) in lines:
-
+        for time_string, duration in lines:
             time_quantity = seconds // duration
 
             seconds %= duration
 
             # little rounding thing if you get 364th day with 30 day months
             if time_string == "month" and time_quantity > 11:
-
                 time_quantity = 11
 
             if time_quantity > 0:
-
                 s = to_human_int(time_quantity) + " " + time_string
 
                 if time_quantity > 1:
-
                     s += "s"
 
                 result_components.append(s)
 
                 if len(result_components) == 2:  # we now have 1 month 2 days
-
                     break
 
             else:
-
                 # something like '1 year' -- in which case we do not care about the days and hours
                 if len(result_components) > 0:
-
                     break
 
         return " ".join(result_components)
 
     if seconds > 1:
-
         if int(seconds) == seconds:
-
             return to_human_int(seconds) + " seconds"
 
         return "{:.1f} seconds".format(seconds)
 
     if seconds == 1:
-
         return "1 second"
 
     if seconds > 0.1:
-
         return "{} milliseconds".format(int(seconds * 1000))
 
     if seconds > 0.01:
-
         return "{:.1f} milliseconds".format(int(seconds * 1000))
 
     if seconds > 0.001:
-
         return "{:.2f} milliseconds".format(int(seconds * 1000))
 
     return "{} microseconds".format(int(seconds * 1000000))
 
+
 class NestedTorrentFileDirectory:
     def __init__(self, name, size=0) -> None:
         self.name = name
-        self.torrent = None
+        self.torrents_file = None
         self.size = size
         self.children = {}
 
@@ -271,15 +284,13 @@ def build_nested_torrent_structure(torrent_files: TorrentFilesList):
             current = current.children
 
         if dir:
-            dir.torrent = file
+            dir.torrents_file = file
 
     return root
 
 
-
 class Call(object):
     def __init__(self, func: Callable, *args, **kwargs):
-
         self._label = None
 
         self._func = func
@@ -287,32 +298,25 @@ class Call(object):
         self._kwargs = kwargs
 
     def __call__(self):
-
         self._func(*self._args, **self._kwargs)
 
     def __repr__(self):
-
         label = self._GetLabel()
 
         return "Call: {}".format(label)
 
     def _GetLabel(self) -> str:
-
         if self._label is None:
-
             # this can actually cause an error with Qt objects that are dead or from the wrong thread, wew!
             label = "{}( {}, {} )".format(self._func, self._args, self._kwargs)
 
         else:
-
             label = self._label
 
         return label
 
     def GetLabel(self) -> str:
-
         return self._GetLabel()
 
     def SetLabel(self, label: str):
-
         self._label = label

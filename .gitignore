@@ -6,6 +6,7 @@
 *.idea/
 *video-test/
 
+*.json
 *.mp4
 *.mkv
 *.vtt
