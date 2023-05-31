@@ -240,7 +240,7 @@ class Expiring_Data_Cache(Data_Cache):
         Gets data if it exists in the cache and has not expired
         """
         with self._lock:
-            return self.get_if_has_data_unsafe(key, remove)
+            return self.get_if_has_non_expired_data_unsafe(key, remove)
 
     def has_non_expired_data_unsafe(self, key):
         return key in self._keys_to_data and not CD.time_has_passed(

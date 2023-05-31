@@ -237,6 +237,7 @@ class ClientWidnow(QW.QMainWindow):
                     [
                         name,
                         CD.size_bytes_to_pretty_str(child.size),
+                        f"{child.get_progress() * 100:.3f}%"
                     ]
                 )
                 item.setFlags(item.flags() | QC.Qt.ItemFlag.ItemIsUserCheckable)

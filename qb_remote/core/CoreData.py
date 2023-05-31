@@ -260,31 +260,52 @@ class NestedTorrentFileDirectory:
         self.name = name
         self.torrents_file = None
         self.size = size
-        self.children = {}
+        self.progress = 0
+        self.children :dict[str, NestedTorrentFileDirectory]= {}
 
-    def sum_size(self):
-        for child in self.children:
-            self.size += child.sum_size()
+    def recalculate_size(self):
+
+        if self.torrents_file:
+            self.size = self.torrents_file.size
+        else:
+            self.size = 0
+
+        self.size += sum(d.recalculate_size() for d in self.children.values())
 
         return self.size
+
+    def _get_progress(self):
+        return self.progress * self.size + sum(d._get_progress() for d in self.children.values())
+
+    def get_progress(self):
+        
+        p = self._get_progress()
+
+        if self.size == 0:
+            return -1
+
+        return p / self.size
+
+        
 
 
 def build_nested_torrent_structure(torrent_files: TorrentFilesList):
     root = NestedTorrentFileDirectory("/")
 
     for file in torrent_files:
-        components = file["name"].split(os.sep)
+        components = file.name.split(os.sep)
 
         dir = None
         current = root.children
         for component in components:
             dir = NestedTorrentFileDirectory(component)
             current = current.setdefault(component, dir)
-            current.size += file["size"]
+            current.size += file.size
             current = current.children
 
         if dir:
             dir.torrents_file = file
+            dir.progress = file.progress
 
     return root
 

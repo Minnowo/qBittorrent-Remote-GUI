@@ -5,6 +5,7 @@
 *postgres/
 *.idea/
 *video-test/
+qb_remote/debug.py
 
 *.json
 *.mp4
