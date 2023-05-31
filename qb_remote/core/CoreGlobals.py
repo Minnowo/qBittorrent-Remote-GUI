@@ -9,4 +9,6 @@ started_shutdown = False
 model_shutdown = False
 view_shutdown = False
 
+daemon_report_mode = True
+
 callto_report_mode = False

@@ -1,4 +1,5 @@
 import sys, os
+import json
 import traceback
 import time
 import threading
@@ -25,6 +26,8 @@ class ClientController(object):
         self._daemon_jobs: dict[str, CoreThreading.Schedulable_Job] = {}
         self._caches: dict[str, Cache.Data_Cache] = {}
         self._expiring_caches: dict[str, Cache.Expiring_Data_Cache] = {}
+
+        self._call_to_threads: list[CoreThreading.Thread_Call_To_Thread] = []
 
         self.torrent_files_cache = Cache.Expiring_Data_Cache(
             "torrent_files_cache", CC.TORRENT_CACHE_TIME_SECONDS
@@ -91,6 +94,40 @@ class ClientController(object):
                 break
 
         self._daemon_jobs = {}
+
+    def _get_call_to_thread(self):
+
+        with self._call_to_thread_lock:
+
+            for call_to_thread in self._call_to_threads:
+
+                if not call_to_thread.is_currently_working():
+
+                    return call_to_thread
+
+            # all the threads in the pool are currently busy
+
+            calling_from_the_thread_pool = threading.current_thread() in self._call_to_threads
+
+            if calling_from_the_thread_pool or len(self._call_to_threads) < 200:
+
+                call_to_thread = CoreThreading.Thread_Call_To_Thread(self, "CallToThread")
+
+                self._call_to_threads.append(call_to_thread)
+
+                call_to_thread.start()
+
+            else:
+
+                call_to_thread = random.choice(self._call_to_threads)
+
+            return call_to_thread
+    
+    def call_to_thread(self, callable: Callable, *args, **kwargs):
+
+        call_to_thread = self._get_call_to_thread()
+
+        call_to_thread.put(callable, *args, **kwargs)
 
     def call_later(
         self, initial_delay_seconds: float, func: Callable, *args, **kwargs
@@ -191,6 +228,16 @@ class ClientController(object):
 
             self._slow_job_scheduler = None
 
+        with self._call_to_thread_lock:
+
+            for call_to_thread in self._call_to_threads:
+
+                call_to_thread.shutdown()
+
+            # for long_running_call_to_thread in self._long_running_call_to_threads:
+
+            #     long_running_call_to_thread.shutdown()
+
         CG.model_shutdown = True
 
     def shutdown_view(self):
@@ -279,7 +326,7 @@ class ClientController(object):
 
     ### Torrent Stuff
 
-    def sync_metadata(self):
+    def sync_get_metadata(self):
         cache = self.get_cache("syncronized_torrent_metadata_cache")
 
         with cache.get_lock():
@@ -288,14 +335,24 @@ class ClientController(object):
             )
 
             if not synced_meta:
-                synced_meta = CG.client_instance.sync_maindata()
+                synced_meta = CG.client_instance.sync.maindata.delta()
 
                 cache.add_data_unsafe("syncronized_metadata", synced_meta, True)
 
-            else:
-                updated_metadata = CG.client_instance.sync_maindata(rid=synced_meta.rid)
+                return synced_meta
 
+            else:
+                
+                updated_metadata = CG.client_instance.sync.maindata.delta()
                 CD.update_dictionary_no_key_remove(synced_meta, updated_metadata)
+
+                return updated_metadata
+
+    def get_metadata_delta(self):
+
+        updated_metadata = CG.client_instance.sync.maindata.delta()
+
+        return updated_metadata
 
     def get_torrents(self, skip_cache=False, **kwargs):
         """
@@ -356,3 +413,15 @@ class ClientController(object):
 
         else:
             self.file_priority_transaction_cache.get_data(torret_hash)["file_ids"].append(file_id)
+
+
+
+    def add_magnet_links(self, magnet_links_and_info: dict[str]):
+
+
+        try:
+            e = CG.client_instance.torrents_add(**magnet_links_and_info)
+
+        except Exception as e:
+            logging.error(e)
+
