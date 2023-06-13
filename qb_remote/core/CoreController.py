@@ -6,6 +6,9 @@ import threading
 import collections
 import random
 from typing import Callable
+
+
+import qbittorrentapi
 from qbittorrentapi import SyncMainDataDictionary
 
 from . import CoreGlobals as CG
@@ -37,7 +40,8 @@ class ClientController(object):
         self.syncronized_torrent_metadata_cache = Cache.Data_Cache(
             "syncronized_torrent_files_cache"
         )
-
+        self.client_cache = Cache.Data_Cache("client_cache")
+        self._caches["client_cache"] = self.client_cache
         self._caches["torrent_files_cache"] = self.torrent_files_cache
         self._caches["torrent_metadata_cache"] = self.torrent_metadata_cache
         self._caches["file_priority_transaction_cache"] = self.file_priority_transaction_cache
@@ -425,3 +429,47 @@ class ClientController(object):
         except Exception as e:
             logging.error(e)
 
+
+
+
+    def get_client_preferences(self, skip_cache=False):
+
+        TIMESTAMP = "update_pref_cache"
+        CACHE_KEY = "app_preferences"
+
+        self.get_client_categories()
+
+        if skip_cache or CD.time_has_passed(self.get_timestamp(TIMESTAMP) + 60):
+
+            self.touch_timestamp(TIMESTAMP)
+
+            a = CG.client_instance.app_preferences()
+
+            self.client_cache.add_data(
+                CACHE_KEY,
+                a, True
+            )
+            return a 
+        
+        return self.client_cache.get_if_has_data(CACHE_KEY)
+
+
+    def get_client_categories(self, skip_cache=False):
+
+        TIMESTAMP = "update_cat_cache"
+        CACHE_KEY = "torrent_categories"
+
+        if skip_cache or CD.time_has_passed(self.get_timestamp(TIMESTAMP) + 30):
+
+            self.touch_timestamp(TIMESTAMP)
+
+            a = CG.client_instance.torrents_categories()
+
+            self.client_cache.add_data(
+                CACHE_KEY,
+                a, True
+            )
+            return a 
+        
+        return self.client_cache.get_if_has_data(CACHE_KEY)
+        

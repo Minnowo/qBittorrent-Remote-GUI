@@ -211,7 +211,8 @@ class ClientWidnow(QW.QMainWindow):
         
         magnets = dialogs.show_add_magnet_link_dialog(self)
 
-        self.contrller.add_magnet_links(magnets)
+        if magnets:
+            self.contrller.add_magnet_links(magnets)
 
     def _item_checkbox_changed(self, item, column):
         if not item:

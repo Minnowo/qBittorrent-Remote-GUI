@@ -26,4 +26,4 @@ def show_add_magnet_link_dialog(parent=None):
     if dialog.exec_() == QW.QDialog.Accepted:
          return dialog.get_magnet_links()
     
-    return set()
+    return {}
