@@ -56,9 +56,7 @@ def get_thread_info(thread: threading.Thread = None):
 
 def is_thread_shutting_down():
     if isinstance(threading.current_thread(), Daemon):
-
         if CG.started_shutdown:
-
             return True
 
     thread_info = get_thread_info()
@@ -273,7 +271,6 @@ class Schedulable_Job(object):
         )
 
     def _boot_worker(self):
-
         self._controller.call_to_thread(self.work)
 
     def cancel(self):
@@ -439,19 +436,8 @@ class Repeating_Job(Schedulable_Job):
             self._scheduler.add_job(self)
 
 
-
-
-
-
-
-
-
-
-
-
 class Daemon(threading.Thread):
-    def __init__(self, controller:"Controller.ClientController", name: str):
-
+    def __init__(self, controller: "Controller.ClientController", name: str):
         threading.Thread.__init__(self, name=name)
 
         self._controller = controller
@@ -460,29 +446,22 @@ class Daemon(threading.Thread):
         self._event = threading.Event()
 
     def _do_pre_call(self):
-
         if CG.daemon_report_mode:
-
             logging.info(self._name + " doing a job.")
 
     def get_current_job_summary(self):
-
         return "unknown job"
 
     def get_name(self):
-
         return self._name
 
     def shutdown(self):
-
         shutdown_thread(self)
 
         self.wake()
 
     def wake(self):
-
         self._event.set()
-
 
 
 class Thread_Call_To_Thread(Daemon):
@@ -495,26 +474,22 @@ class Thread_Call_To_Thread(Daemon):
     """
 
     def __init__(self, controller: "Controller.ClientController", name: str):
-
         Daemon.__init__(self, controller, name)
 
         self._callable = None
 
         self._queue: queue.Queue[tuple[Callable]] = queue.Queue()
-        
+
         # start off true so new threads aren't used twice by two quick successive calls
-        self._currently_working = True  
+        self._currently_working = True
 
     def is_currently_working(self):
-
         return self._currently_working
 
     def get_current_job_summary(self):
-
         return self._callable
 
     def put(self, callable: Callable, *args, **kwargs):
-
         self._currently_working = True
 
         self._queue.put((callable, args, kwargs))
@@ -522,13 +497,9 @@ class Thread_Call_To_Thread(Daemon):
         self._event.set()
 
     def run(self):
-
         try:
-
             while True:
-
                 while self._queue.empty():
-
                     die_if_thread_is_shutting_down()
 
                     self._event.wait(10.0)
@@ -538,13 +509,10 @@ class Thread_Call_To_Thread(Daemon):
                 die_if_thread_is_shutting_down()
 
                 try:
-
                     try:
-
                         (callable, args, kwargs) = self._queue.get(1.0)
 
                     except queue.Empty:
-
                         # https://github.com/hydrusnetwork/hydrus/issues/750
                         # this shouldn't happen, but...
                         # even if we assume we'll never get this, we don't want to make a business of hanging forever on things
@@ -562,19 +530,15 @@ class Thread_Call_To_Thread(Daemon):
                     del callable
 
                 except CE.Shutdown_Exception:
-
                     return
 
                 except Exception as e:
-
                     logging.error(traceback.format_exc())
 
                 finally:
-
                     self._currently_working = False
 
                 time.sleep(0.00001)
 
         except CE.Shutdown_Exception:
-
             return

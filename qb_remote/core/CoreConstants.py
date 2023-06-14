@@ -26,4 +26,6 @@ TORRENT_PRIORITY_HIGH = 6
 TORRENT_PRIORITY_MAXIMUM = 7
 
 # see https://en.wikipedia.org/wiki/Magnet_URI_scheme
-MAGNET_LINK_REGEX = re.compile(r"(magnet:\?xt=urn:btih:[a-zA-Z0-9]+(?:&(?:xt|dn|xl|tr|ws|as|xs|kt|mt|so|x\.pe)=[^\s]+)*)")
+MAGNET_LINK_REGEX = re.compile(
+    r"(magnet:\?xt=urn:btih:[a-zA-Z0-9]+(?:&(?:xt|dn|xl|tr|ws|as|xs|kt|mt|so|x\.pe)=[^\s]+)*)"
+)

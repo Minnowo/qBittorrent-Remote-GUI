@@ -6,14 +6,11 @@ from qtpy import QtGui as QG
 
 
 def iter_qtreewidget_items(qtreewidget: QW.QTreeWidget):
-
     root_item = qtreewidget.invisibleRootItem()
 
     for i in range(root_item.childCount()):
-
         yield root_item.child(i)
 
-    
 
 def get_flipped_check_state(state: QC.Qt.CheckState):
     if state == QC.Qt.CheckState.Checked:

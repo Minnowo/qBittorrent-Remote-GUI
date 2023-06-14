@@ -22,7 +22,7 @@ from ..core import CoreConstants as CC
 from ..core import CoreLogging as logging
 
 from . import GUICommon
-from . import dialogs 
+from . import dialogs
 
 
 class ClientWidnow(QW.QMainWindow):
@@ -91,15 +91,11 @@ class ClientWidnow(QW.QMainWindow):
         self.file_tree.customContextMenuRequested.connect(self._right_click_menu)
         self.file_tree.itemChanged.connect(self._item_checkbox_changed)
 
-
         self.file_menu = self.menuBar().addMenu("File")
-        self.add_torrent_file_action = self.file_menu.addAction("Add Torrent File")
-        self.add_torrent_file_action.triggered.connect(lambda x: dialogs.show_add_torrent_file_dialog(self))
+        self.add_torrent_file_action = self.file_menu.addAction("Add Torrent(s)")
+        self.add_torrent_file_action.triggered.connect(self._handle_magnet_dialog)
 
-        self.add_torrent_link_action = self.file_menu.addAction("Add Magnet Link")
-        self.add_torrent_link_action.triggered.connect(self._handle_magnet_dialog)
         self.logout_menu = self.file_menu.addMenu("Logout")
-
 
         # self.split_panel.addWidget(self.torrent_list)
         self.split_panel.addWidget(self._torrent_list_new)
@@ -135,17 +131,18 @@ class ClientWidnow(QW.QMainWindow):
         server_state = delta.get("server_state", None)
 
         if server_state:
-
-            CD.update_dictionary_no_key_remove(self.global_state_cache.get_data("server_state"), server_state)
+            CD.update_dictionary_no_key_remove(
+                self.global_state_cache.get_data("server_state"), server_state
+            )
 
             server_state = self.global_state_cache.get_data("server_state")
 
             self.status_label.setText(
                 self.status_text_template.format(
-                    CD.size_bytes_to_pretty_str(server_state['free_space_on_disk']),
-                    server_state['dht_nodes'],
-                    CD.size_bytes_to_pretty_str(server_state['dl_info_speed']),
-                    CD.size_bytes_to_pretty_str(server_state['up_info_speed']),
+                    CD.size_bytes_to_pretty_str(server_state["free_space_on_disk"]),
+                    server_state["dht_nodes"],
+                    CD.size_bytes_to_pretty_str(server_state["dl_info_speed"]),
+                    CD.size_bytes_to_pretty_str(server_state["up_info_speed"]),
                 )
                 + f"   RID: {delta.rid}"
             )
@@ -155,12 +152,10 @@ class ClientWidnow(QW.QMainWindow):
         torrents_removed = delta.get("torrents_removed", {})
 
         if torrents or torrents_removed:
-
             existing_hashes = set()
             items_to_remove = []
 
             for item in GUICommon.iter_qtreewidget_items(self._torrent_list_new):
-
                 torrent_hash = item.data(0, QC.Qt.UserRole)
 
                 if torrent_hash in torrents_removed:
@@ -175,40 +170,34 @@ class ClientWidnow(QW.QMainWindow):
 
                 t = torrents[torrent_hash]
 
-                if 'name' in t:
+                if "name" in t:
                     item.setText(0, t.name)
-                if 'size' in t:
+                if "size" in t:
                     item.setText(1, CD.size_bytes_to_pretty_str(t.size))
-                if 'progress' in t:
+                if "progress" in t:
                     item.setText(2, f"{t.progress * 100:.2f}%")
-                if  'state' in t:
+                if "state" in t:
                     item.setText(3, CD.torrent_state_to_pretty(t.state))
-                if 'ratio' in t:
+                if "ratio" in t:
                     item.setText(4, f"{t.ratio:.3f}")
-                if 'availability' in t:
+                if "availability" in t:
                     item.setText(5, f"{t.availability:.3f}")
-                if 'dlspeed' in t:
+                if "dlspeed" in t:
                     item.setText(6, CD.size_bytes_to_pretty_str(t.dlspeed))
-                if 'upspeed' in t:
+                if "upspeed" in t:
                     item.setText(7, CD.size_bytes_to_pretty_str(t.upspeed))
 
             _ = self._torrent_list_new.invisibleRootItem()
             for item in items_to_remove:
-                _ .removeChild(item)
-
+                _.removeChild(item)
 
             if len(existing_hashes) != len(torrents):
-
-                for hash in (torrents.keys() - existing_hashes):
-
+                for hash in torrents.keys() - existing_hashes:
                     item = self.get_torrent_tree_widget_item(torrents[hash])
                     item.setData(0, QC.Qt.UserRole, hash)
                     self._torrent_list_new.insertTopLevelItem(0, item)
 
-
-
     def _handle_magnet_dialog(self):
-        
         magnets = dialogs.show_add_magnet_link_dialog(self)
 
         if magnets:
@@ -314,7 +303,7 @@ class ClientWidnow(QW.QMainWindow):
                     [
                         name,
                         CD.size_bytes_to_pretty_str(child.size),
-                        f"{child.get_progress() * 100:.3f}%"
+                        f"{child.get_progress() * 100:.3f}%",
                     ]
                 )
                 item.setFlags(item.flags() | QC.Qt.ItemFlag.ItemIsUserCheckable)
@@ -327,18 +316,17 @@ class ClientWidnow(QW.QMainWindow):
 
         return parent
 
-    def get_torrent_tree_widget_item(self, values:dict):
-
+    def get_torrent_tree_widget_item(self, values: dict):
         item = QW.QTreeWidgetItem(
             [
-                values.get("name","N/A"),
+                values.get("name", "N/A"),
                 CD.size_bytes_to_pretty_str(values.get("size", 0)),
                 f"{values.get('progress', 0) * 100:.2f}%",
-                CD.torrent_state_to_pretty(values.get('state', 'N/A')),
+                CD.torrent_state_to_pretty(values.get("state", "N/A")),
                 f"{values.get('ratio', 0):.3f}",
                 f"{values.get('availability', 0):.3f}",
-                CD.size_bytes_to_pretty_str(values.get('dlspeed', 0)),
-                CD.size_bytes_to_pretty_str(values.get('upspeed', 0)),
+                CD.size_bytes_to_pretty_str(values.get("dlspeed", 0)),
+                CD.size_bytes_to_pretty_str(values.get("upspeed", 0)),
             ]
         )
 
