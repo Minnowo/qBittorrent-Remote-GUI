@@ -11,10 +11,10 @@ from ...core import CoreLogging as logging
 
 
 class TorrentDialog(QW.QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, controller=None, parent=None):
         super().__init__(parent)
 
-        self._controller = CG.controller
+        self._controller = controller or CG.controller
 
         if self._controller:
             self.preferences = self._controller.get_client_preferences()

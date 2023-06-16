@@ -70,6 +70,8 @@ class ClientController(object):
 
         self._doing_fast_exit = False
 
+        self.client_id = None
+
     def _get_wake_delay_period(self):
         return 15
 
@@ -292,6 +294,9 @@ class ClientController(object):
 
             self.init_view()
 
+            if CC.IS_PROFILE_MODE:
+                self.create_client_tag()
+
             self._is_booted = True
 
         except CE.Shutdown_Exception as e:
@@ -407,8 +412,18 @@ class ClientController(object):
         else:
             self.file_priority_transaction_cache.get_data(torret_hash)["file_ids"].append(file_id)
 
-    def add_magnet_links(self, magnet_links_and_info: dict[str]):
+    def upload_torrents(self, magnet_links_and_info: dict[str]):
         try:
+
+            if CC.IS_PROFILE_MODE:
+                tags = magnet_links_and_info.get('tags', None)
+
+                if tags is None:
+                    magnet_links_and_info['tags'] = [self.client_id]
+                else:
+                    tags.append(self.client_id)
+
+
             e = CG.client_instance.torrents_add(**magnet_links_and_info)
 
         except Exception as e:
@@ -443,3 +458,75 @@ class ClientController(object):
             return a
 
         return self.client_cache.get_if_has_data(CACHE_KEY)
+
+
+    def get_client_id(self, include_prefix:bool = True):
+        self.create_client_tag()
+
+        _ = CC.DEFAULT_CLIENT_ID
+
+        if not self.client_id:
+            if not include_prefix:
+                return _
+            return 'user_' + _
+
+        _ = self.client_id
+
+        if not include_prefix:
+            return _
+        return 'user_' + _
+
+    def change_client_id(self, new_client_id: str):
+
+        if new_client_id is None or CC.USE_HARDWARE_ID:
+            return
+
+        new_client_id = new_client_id[0:64].strip()
+
+        if not CC.CLIENT_ID_REGEX.match(new_client_id):
+            logging.warning(f"Trying to change client_id to invalid value of: {new_client_id}")
+            return 
+
+        self.client_id = new_client_id
+
+        CD.save_guid(new_client_id)
+
+        if CC.IS_PROFILE_MODE:
+            CG.client_instance.torrents_create_tags([new_client_id])
+
+    def create_client_tag(self):
+
+        if self.client_id:
+            return
+
+        client_tag =  CD.get_guid()
+
+        if not self.client_id:
+            self.client_id = client_tag
+
+        logging.info(f"Client ID: {client_tag}")
+
+        if CC.IS_PROFILE_MODE:
+            CG.client_instance.torrents_create_tags([client_tag])
+
+
+    def torrent_passes_filter(self, torrent_dict: dict):
+
+        passes = True
+
+        if CC.IS_PROFILE_MODE:
+            self.create_client_tag()
+
+            tags = torrent_dict.get('tags', None)
+
+            if tags:
+
+                tags = set(tags.split(", "))
+
+                if self.get_client_id() not in tags:
+                    passes = False
+
+            else:
+                passes = False
+
+        return passes

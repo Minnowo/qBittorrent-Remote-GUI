@@ -29,9 +29,11 @@ class ClientWidnow(QW.QMainWindow):
     def __init__(self, controller: Controller.ClientController):
         super().__init__()
 
-        self.contrller = controller
+        self._controller = controller
 
         self.selected_torrent_hash: str = None
+
+        self.pause = False
 
         self.metadata_sync_timer = QC.QTimer(self)
         self.metadata_sync_timer.timeout.connect(self._update_metadata)
@@ -97,6 +99,9 @@ class ClientWidnow(QW.QMainWindow):
 
         self.logout_menu = self.file_menu.addMenu("Logout")
 
+        self.settings_action = self.menuBar().addAction("Settings")
+        self.settings_action.triggered.connect(self._open_settings_dialog)
+
         # self.split_panel.addWidget(self.torrent_list)
         self.split_panel.addWidget(self._torrent_list_new)
         self.split_panel.addWidget(self.file_tree)
@@ -124,9 +129,11 @@ class ClientWidnow(QW.QMainWindow):
         self._update_metadata()
 
     def _update_metadata(self):
-        logging.debug("timer tick")
 
-        delta = self.contrller.get_metadata_delta()
+        if self.pause:
+            return
+
+        delta = self._controller.get_metadata_delta()
 
         server_state = delta.get("server_state", None)
 
@@ -151,60 +158,74 @@ class ClientWidnow(QW.QMainWindow):
 
         torrents_removed = delta.get("torrents_removed", {})
 
-        if torrents or torrents_removed:
-            existing_hashes = set()
-            items_to_remove = []
+        if not torrents and not torrents_removed:
+            return
 
-            for item in GUICommon.iter_qtreewidget_items(self._torrent_list_new):
-                torrent_hash = item.data(0, QC.Qt.UserRole)
+        existing_hashes = set()
+        items_to_remove = []
 
-                if torrent_hash in torrents_removed:
-                    items_to_remove.append(item)
+        for item in GUICommon.iter_qtreewidget_items(self._torrent_list_new):
+            torrent_hash = item.data(0, QC.Qt.UserRole)
 
+            if torrent_hash in torrents_removed:
+                items_to_remove.append(item)
+
+                continue
+
+            if torrent_hash not in torrents:
+                continue
+
+            existing_hashes.add(torrent_hash)
+
+            t = torrents[torrent_hash]
+
+            if "name" in t:
+                item.setText(0, t.name)
+            if "size" in t:
+                item.setText(1, CD.size_bytes_to_pretty_str(t.size))
+            if "progress" in t:
+                item.setText(2, f"{t.progress * 100:.2f}%")
+            if "state" in t:
+                item.setText(3, CD.torrent_state_to_pretty(t.state))
+            if "ratio" in t:
+                item.setText(4, f"{t.ratio:.3f}")
+            if "availability" in t:
+                item.setText(5, f"{t.availability:.3f}")
+            if "dlspeed" in t:
+                item.setText(6, CD.size_bytes_to_pretty_str(t.dlspeed))
+            if "upspeed" in t:
+                item.setText(7, CD.size_bytes_to_pretty_str(t.upspeed))
+
+        _ = self._torrent_list_new.invisibleRootItem()
+        for item in items_to_remove:
+            _.removeChild(item)
+
+        if len(existing_hashes) != len(torrents):
+            for hash in torrents.keys() - existing_hashes:
+
+                metadata = torrents[hash]
+
+                if not self._controller.torrent_passes_filter(metadata):
                     continue
 
-                if torrent_hash not in torrents:
-                    continue
-
-                existing_hashes.add(torrent_hash)
-
-                t = torrents[torrent_hash]
-
-                if "name" in t:
-                    item.setText(0, t.name)
-                if "size" in t:
-                    item.setText(1, CD.size_bytes_to_pretty_str(t.size))
-                if "progress" in t:
-                    item.setText(2, f"{t.progress * 100:.2f}%")
-                if "state" in t:
-                    item.setText(3, CD.torrent_state_to_pretty(t.state))
-                if "ratio" in t:
-                    item.setText(4, f"{t.ratio:.3f}")
-                if "availability" in t:
-                    item.setText(5, f"{t.availability:.3f}")
-                if "dlspeed" in t:
-                    item.setText(6, CD.size_bytes_to_pretty_str(t.dlspeed))
-                if "upspeed" in t:
-                    item.setText(7, CD.size_bytes_to_pretty_str(t.upspeed))
-
-            _ = self._torrent_list_new.invisibleRootItem()
-            for item in items_to_remove:
-                _.removeChild(item)
-
-            if len(existing_hashes) != len(torrents):
-                for hash in torrents.keys() - existing_hashes:
-                    item = self.get_torrent_tree_widget_item(torrents[hash])
-                    item.setData(0, QC.Qt.UserRole, hash)
-                    self._torrent_list_new.insertTopLevelItem(0, item)
+                item = self.get_torrent_tree_widget_item(metadata)
+                item.setData(0, QC.Qt.UserRole, hash)
+                self._torrent_list_new.insertTopLevelItem(0, item)
 
     def _handle_magnet_dialog(self):
         magnets = dialogs.show_add_magnet_link_dialog(self)
 
         if magnets:
-            self.contrller.add_magnet_links(magnets)
+            self._controller.upload_torrents(magnets)
+
+
+    def _open_settings_dialog(self):
+
+        dialogs.SettingsDialog(self._controller).exec_()
+        logging.info("uwu")
 
     def _item_checkbox_changed(self, item, column):
-        if not item:
+        if not item or self.pause:
             return
 
         info = item.data(0, QC.Qt.UserRole)
@@ -226,7 +247,7 @@ class ClientWidnow(QW.QMainWindow):
         else:
             priority = CC.TORRENT_PRIORITY_DO_NOT_DOWNLOAD
 
-        self.contrller.update_torrents_file_priority_transactional(
+        self._controller.update_torrents_file_priority_transactional(
             self.selected_torrent_hash, id, priority
         )
 
@@ -251,6 +272,8 @@ class ClientWidnow(QW.QMainWindow):
         menu.exec_(self.file_tree.viewport().mapToGlobal(position))
 
     def _list_item_click(self, list_item: QW.QListWidgetItem):
+        if self.pause:
+            return
         t_hash = list_item.data(0, QC.Qt.UserRole)
 
         self.selected_torrent_hash = t_hash
@@ -258,6 +281,8 @@ class ClientWidnow(QW.QMainWindow):
         self.load_file_for_torrent(t_hash)
 
     def _search_pressed(self):
+        if self.pause:
+            return
         search = self.input_box.text()
 
         root_item = self._torrent_list_new.invisibleRootItem()
@@ -333,15 +358,21 @@ class ClientWidnow(QW.QMainWindow):
         return item
 
     def update_torrent_list(self):
+        if self.pause:
+            return
         self._torrent_list_new.clear()
 
-        for torrent in self.contrller.get_torrents():
+        for torrent in self._controller.get_torrents():
+            if not self._controller.torrent_passes_filter(torrent):
+                continue
             item = self.get_torrent_tree_widget_item(torrent)
             item.setData(0, QC.Qt.UserRole, torrent.hash)
             self._torrent_list_new.insertTopLevelItem(0, item)
 
     def load_file_for_torrent(self, torrent_hash: str):
-        data = self.contrller.torrent_metadata_cache.get_if_has_data(torrent_hash)
+        if self.pause:
+            return
+        data = self._controller.torrent_metadata_cache.get_if_has_data(torrent_hash)
 
         if data:
             logging.debug(f"Cache hit for torrent hash: {torrent_hash}")
@@ -351,7 +382,7 @@ class ClientWidnow(QW.QMainWindow):
         try:
             data = CG.client_instance.torrents_files(torrent_hash)
 
-            self.contrller.torrent_metadata_cache.add_data(torrent_hash, data)
+            self._controller.torrent_metadata_cache.add_data(torrent_hash, data)
 
             self.set_tree_contents(data, torrent_hash)
 
@@ -359,6 +390,8 @@ class ClientWidnow(QW.QMainWindow):
             logging.warning(f"Could not find torrent with hash: {torrent_hash}")
 
     def set_tree_contents(self, torrent_file_list: TorrentFilesList, cache_key: str = None):
+        if self.pause:
+            return
         self.file_tree.clear()
 
         nested = None

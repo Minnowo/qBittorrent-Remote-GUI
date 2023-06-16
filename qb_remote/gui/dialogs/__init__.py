@@ -5,7 +5,8 @@ from qtpy import QtWidgets as QW
 from qtpy import QtGui as QG
 
 from .GUITorrentDialog import TorrentDialog
-
+from .GUISettingsDialog import SettingsDialog
+from .GUICommonDialogs import *
 
 def show_add_torrent_file_dialog(parent=None):
     file_dialog = QW.QFileDialog(parent)

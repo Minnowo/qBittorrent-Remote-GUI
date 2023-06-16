@@ -1,5 +1,8 @@
 import math
+import subprocess
+import sys
 import os
+import hashlib
 import time
 from typing import Union, Callable, TYPE_CHECKING
 
@@ -337,3 +340,58 @@ class Call(object):
 
     def SetLabel(self, label: str):
         self._label = label
+
+
+def save_guid(guid:str):
+    if guid is None:
+        return
+
+    os.makedirs(CC.CONFIG_DIRECTORY, exist_ok=True)
+
+    with open(CC.CONFIG_CLIENT_ID_FILE, "w") as writer:
+        writer.write(guid[0:64].strip())
+
+def get_guid():
+
+    if CC.USE_HARDWARE_ID:
+        _ = get_machine_guid()
+
+        if _ is not None:
+
+            hash = hashlib.sha256()
+            hash.update(_.encode())
+            hash.update(sys.platform.encode())
+            return hash.digest().hex()
+        
+        raise Exception("Cannot generate hardware id")
+
+    if os.path.isfile(CC.CONFIG_CLIENT_ID_FILE):
+        with open(CC.CONFIG_CLIENT_ID_FILE, "r") as reader:
+            return reader.read(64).strip()
+    
+
+def run(cmd):
+  try:
+    return subprocess.run(cmd, shell=True, capture_output=True, check=True, encoding="utf-8") \
+                     .stdout \
+                     .strip()
+  except:
+    return None
+
+def get_machine_guid():
+  if sys.platform == 'darwin':
+    return run(
+      "ioreg -d2 -c IOPlatformExpertDevice | awk -F\\\" '/IOPlatformUUID/{print $(NF-1)}'",
+    )
+
+  if sys.platform == 'win32' or sys.platform == 'cygwin' or sys.platform == 'msys':
+    return run('wmic csproduct get uuid').split('\n')[2] \
+                                         .strip()
+
+  if sys.platform.startswith('linux'):
+    return run('cat /var/lib/dbus/machine-id') or \
+           run('cat /etc/machine-id')
+
+  if sys.platform.startswith('openbsd') or sys.platform.startswith('freebsd'):
+    return run('cat /etc/hostid') or \
+           run('kenv -q smbios.system.uuid')
