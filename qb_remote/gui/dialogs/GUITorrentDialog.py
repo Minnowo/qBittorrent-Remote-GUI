@@ -7,6 +7,7 @@ from qtpy import QtGui as QG
 
 from ...core import CoreConstants as CC
 from ...core import CoreGlobals as CG
+from ...core import CoreData as CD
 from ...core import CoreLogging as logging
 
 
@@ -20,8 +21,15 @@ class TorrentDialog(QW.QDialog):
             self.preferences = self._controller.get_client_preferences()
             self.categories = self._controller.get_client_categories()
         else:
-            self.preferences = {"save_path": ""}
-            self.categories = {}
+            raise Exception("Controller cannot be null")
+
+        self.og_torrent_root_directory = self.preferences['save_path']
+        self.torrent_root_directory = self.preferences['save_path']
+
+        if CC.IS_PROFILE_MODE:
+
+            self.torrent_root_directory = CD.join_path_remote(self.torrent_root_directory, self._controller.get_client_id(False)) 
+
 
         self.magnets = set()
         self.files = set()
@@ -36,6 +44,9 @@ class TorrentDialog(QW.QDialog):
         self.label_management_mode = QW.QLabel("Torrent Management Mode: ", self)
         self.dropdown_management_mode = QW.QComboBox(self)
         self.dropdown_management_mode.addItems(["Automatic", "Manual"])
+        if CC.IS_PROFILE_MODE:
+            self.dropdown_management_mode.setCurrentIndex(1)
+            self.dropdown_management_mode.setEnabled(False)
         self.dropdown_management_mode.currentIndexChanged.connect(
             self._torrent_management_mode_changed
         )
@@ -45,20 +56,29 @@ class TorrentDialog(QW.QDialog):
         self.dropdown_category.addItems(["None"] + list(self.categories.keys()))
         self.dropdown_category.currentIndexChanged.connect(self._torrent_category_changed)
 
-        self.label_save_location = QW.QLabel("Save files to location: ", self)
+        self.label_save_location = QW.QLabel("Save files to location: {}".format(self.torrent_root_directory), self)
         self.textbox_save_location = QW.QLineEdit(self)
-        self.textbox_save_location.setText(self.preferences["save_path"])
 
         self.label_rename_torrent = QW.QLabel("Rename Torrent: ", self)
         self.textbox_rename_torrent = QW.QLineEdit(self)
 
         self.checkbox_start_torrent = QW.QCheckBox("Start Torrent", self)
         self.checkbox_start_torrent.setChecked(True)
+        self.checkbox_start_torrent.setToolTip("""Starts downloading the torrent automatically.""")
         self.checkbox_skip_hash_check = QW.QCheckBox("Skip Hash Check", self)
+        self.checkbox_skip_hash_check.setToolTip("""Skips checking the content hash.
+Lets you start seeding / using data without performing the hash check.
+Carries the risk of downloading or seeding bad / corrupted data.""")
         self.checkbox_sequential_download = QW.QCheckBox("Download In Sequential Order", self)
+        self.checkbox_sequential_download.setToolTip("""Downloads the torrent pieces in order. 
+This IS REQUIRED if you want to watch a video or audio file while it downloads.
+If you do not plan on watching something while it downloads you should uncheck this option.""")
         self.checkbox_first_and_last_piece = QW.QCheckBox(
             "Download First And Last Pieces First", self
         )
+        self.checkbox_first_and_last_piece.setToolTip("""Downloads the first and last pieces of the torrent first.
+This is only useful for single-file torrents.
+This may will help or may be required to watch a video or audio file while it downloads.""")
 
         self.button_box = QW.QDialogButtonBox(
             QW.QDialogButtonBox.Ok | QW.QDialogButtonBox.Cancel, self
@@ -101,6 +121,24 @@ class TorrentDialog(QW.QDialog):
         _ = self.dropdown_category.currentText()
 
         if not self.is_automatic_torrent_mode():
+
+            if CC.IS_PROFILE_MODE:
+                if _ == "None":
+                    return
+
+                cat = self.categories.get(_, None)
+
+                if cat:
+                    cat_path :str= cat['savePath']
+
+                    if cat_path.startswith(self.og_torrent_root_directory):
+                        cat_path = cat_path[len(self.og_torrent_root_directory) + 1:]
+
+                    self.textbox_save_location.setText(cat_path)
+                
+                else:
+                    self.textbox_save_location.setText("")
+
             return
 
         if _ == "None":
@@ -156,7 +194,7 @@ class TorrentDialog(QW.QDialog):
             pass
 
     def is_automatic_torrent_mode(self):
-        return self.dropdown_management_mode.currentText() == "Automatic"
+        return not CC.IS_PROFILE_MODE and self.dropdown_management_mode.currentText() == "Automatic"
 
     def is_category_none(self):
         return self.dropdown_category.currentText() == "None"
@@ -178,10 +216,15 @@ class TorrentDialog(QW.QDialog):
         if not save_path or self.is_automatic_torrent_mode():
             save_path = None
 
+        if CC.IS_PROFILE_MODE:
+            save_path = CD.join_path_remote(self.torrent_root_directory, self.textbox_save_location.text().strip())
+
         rename_to = self.textbox_rename_torrent.text().strip()
 
         if not rename_to:
             rename_to = None
+
+        logging.info(save_path)
 
         return {
             "urls": m,

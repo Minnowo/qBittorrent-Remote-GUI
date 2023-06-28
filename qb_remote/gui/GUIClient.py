@@ -25,13 +25,13 @@ from . import GUICommon
 from . import dialogs
 
 
-class ClientWidnow(QW.QMainWindow):
+class ClientWindow(QW.QMainWindow):
     def __init__(self, controller: Controller.ClientController):
         super().__init__()
 
         self._controller = controller
 
-        self.selected_torrent_hash: str = None
+        self.selected_torrent_hash: str = ""
 
         self.pause = False
 
@@ -97,7 +97,10 @@ class ClientWidnow(QW.QMainWindow):
         self.add_torrent_file_action = self.file_menu.addAction("Add Torrent(s)")
         self.add_torrent_file_action.triggered.connect(self._handle_magnet_dialog)
 
-        self.logout_menu = self.file_menu.addMenu("Logout")
+        self.login_menu = self.file_menu.addAction("Connect")
+        self.login_menu.triggered.connect(self._controller.init_qbittorrent_connection)
+        self.logout_menu = self.file_menu.addAction("Disconnect")
+        self.logout_menu.triggered.connect(self._controller.shutdown_qbittorrent_connection)
 
         self.settings_action = self.menuBar().addAction("Settings")
         self.settings_action.triggered.connect(self._open_settings_dialog)
@@ -130,10 +133,14 @@ class ClientWidnow(QW.QMainWindow):
 
     def _update_metadata(self):
 
-        if self.pause:
+        if self.pause or not self._controller.is_qbittorrent_ok():
             return
 
         delta = self._controller.get_metadata_delta()
+
+
+        if not delta:
+            return
 
         server_state = delta.get("server_state", None)
 
@@ -177,7 +184,7 @@ class ClientWidnow(QW.QMainWindow):
 
             existing_hashes.add(torrent_hash)
 
-            t = torrents[torrent_hash]
+            t: dict = torrents[torrent_hash]
 
             if "name" in t:
                 item.setText(0, t.name)
@@ -213,19 +220,26 @@ class ClientWidnow(QW.QMainWindow):
                 self._torrent_list_new.insertTopLevelItem(0, item)
 
     def _handle_magnet_dialog(self):
-        magnets = dialogs.show_add_magnet_link_dialog(self)
 
-        if magnets:
+        if not self._controller.is_qbittorrent_ok():
+            return
+
+        magnets = dialogs.show_add_magnet_link_dialog(self._controller, self)
+
+        a = magnets.get('torrent_files', None)
+        b = magnets.get('urls', None)
+
+        if a or b:
             self._controller.upload_torrents(magnets)
 
 
     def _open_settings_dialog(self):
 
         dialogs.SettingsDialog(self._controller).exec_()
-        logging.info("uwu")
+
 
     def _item_checkbox_changed(self, item, column):
-        if not item or self.pause:
+        if not item or self.pause or not self._controller.is_qbittorrent_ok():
             return
 
         info = item.data(0, QC.Qt.UserRole)
@@ -358,7 +372,7 @@ class ClientWidnow(QW.QMainWindow):
         return item
 
     def update_torrent_list(self):
-        if self.pause:
+        if self.pause or not self._controller.is_qbittorrent_ok():
             return
         self._torrent_list_new.clear()
 
@@ -370,7 +384,7 @@ class ClientWidnow(QW.QMainWindow):
             self._torrent_list_new.insertTopLevelItem(0, item)
 
     def load_file_for_torrent(self, torrent_hash: str):
-        if self.pause:
+        if self.pause or not self._controller.is_qbittorrent_ok():
             return
         data = self._controller.torrent_metadata_cache.get_if_has_data(torrent_hash)
 
@@ -380,7 +394,7 @@ class ClientWidnow(QW.QMainWindow):
             return
 
         try:
-            data = CG.client_instance.torrents_files(torrent_hash)
+            data = self._controller.qbittorrent.torrents_files(torrent_hash)
 
             self._controller.torrent_metadata_cache.add_data(torrent_hash, data)
 

@@ -18,8 +18,8 @@ def show_add_torrent_file_dialog(parent=None):
     return []
 
 
-def show_add_magnet_link_dialog(parent=None):
-    dialog = TorrentDialog(parent)
+def show_add_magnet_link_dialog(controller=None,parent=None):
+    dialog = TorrentDialog(controller=controller,parent=parent)
 
     if dialog.exec_() == QW.QDialog.Accepted:
         return dialog.get_magnet_links()

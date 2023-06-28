@@ -1,3 +1,4 @@
+import json
 import math
 import subprocess
 import sys
@@ -21,15 +22,13 @@ except ImportError:
     PSUTIL_OK = False
 
 
-def get_client_build_information():
-    if not CG.client_initialized:
-        raise RuntimeError("qBittorrent not initialized!")
+def get_client_build_information(qbittorrent):
 
     return "\n".join(
         (
-            f"qBittorrent: {CG.client_instance.app.version}",
-            f"qBittorrent Web API: {CG.client_instance.app.web_api_version}",
-            "\n".join(f"{k}: {v}" for k, v in CG.client_instance.app.build_info.items()),
+            f"qBittorrent: {qbittorrent.app.version}",
+            f"qBittorrent Web API: {qbittorrent.app.web_api_version}",
+            "\n".join(f"{k}: {v}" for k, v in qbittorrent.app.build_info.items()),
         )
     )
 
@@ -93,7 +92,7 @@ def update_dictionary_no_key_remove(dicta: MutableMapping, dictb: MutableMapping
 
 
 def get_create_time():
-    if CC.PSUTIL_OK:
+    if PSUTIL_OK:
         try:
             me = psutil.Process()
 
@@ -341,6 +340,22 @@ class Call(object):
     def SetLabel(self, label: str):
         self._label = label
 
+def save_settings(settings:dict):
+
+    os.makedirs(CC.CONFIG_DIRECTORY, exist_ok=True)
+
+    with open(CC.CONFIG_CLIENT_SETTINGS, "w") as writer:
+       json.dump(settings, writer, indent=3) 
+
+def load_settings(settings:dict):
+
+    if not os.path.isfile(CC.CONFIG_CLIENT_SETTINGS):
+        return
+
+    with open(CC.CONFIG_CLIENT_SETTINGS, "r") as reader:
+        data = json.load(reader)
+
+        update_dictionary_no_key_remove(settings, data)
 
 def save_guid(guid:str):
     if guid is None:
@@ -358,7 +373,7 @@ def get_guid():
 
         if _ is not None:
 
-            hash = hashlib.sha256()
+            hash = hashlib.sha1()
             hash.update(_.encode())
             hash.update(sys.platform.encode())
             return hash.digest().hex()
@@ -368,6 +383,8 @@ def get_guid():
     if os.path.isfile(CC.CONFIG_CLIENT_ID_FILE):
         with open(CC.CONFIG_CLIENT_ID_FILE, "r") as reader:
             return reader.read(64).strip()
+
+    return "UNKNOWN"
     
 
 def run(cmd):
@@ -395,3 +412,27 @@ def get_machine_guid():
   if sys.platform.startswith('openbsd') or sys.platform.startswith('freebsd'):
     return run('cat /etc/hostid') or \
            run('kenv -q smbios.system.uuid')
+
+
+
+def join_path_remote(remote: str, *args):
+
+    # always using / because it *should* work fine on both windows and unix-like
+    sep = "/"
+
+    # always assume the remote path is correct other than this
+    remote = remote.replace("\\", sep)
+
+    if not args:
+        return remote 
+
+    args = sep.join(
+            sep.join(
+                filter(
+                    lambda x : not not x.strip(), 
+                    s.replace("\\", sep).split(sep)
+                )
+            ) for s in args
+        )
+
+    return sep.join([remote, args])

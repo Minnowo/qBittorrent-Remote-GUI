@@ -17,10 +17,13 @@ BRAND = "qBittorrent Remote GUI"
 
 CONFIG_DIRECTORY = os.path.join(pathlib.Path.home(), ".config", "qBittorrent_Remote_GUI")
 CONFIG_CLIENT_ID_FILE = os.path.join(CONFIG_DIRECTORY, "client_id")
+CONFIG_CLIENT_SETTINGS = os.path.join(CONFIG_DIRECTORY, "settings.json")
 
 # profile mode is designed if you want to share a remote client with multiple pc / people
 # the idea is that each gui would have it's own 'profile' where only it's torrents show up
 # it's supposed to be more of a soft lock as obviously anyone with the credentials can login
+# it also gives each person their own folde for files, which works great, until 2 or more people add the same torrent
+# then whoever added it first gets the files in their folder
 DEFAULT_CLIENT_ID = "anonymous"
 IS_PROFILE_MODE = False
 # overwrites personal setting of the client id, using a hardware id instead
@@ -44,3 +47,12 @@ MAGNET_LINK_REGEX = re.compile(
 )
 
 CLIENT_ID_REGEX = re.compile(r"^[a-zA-Z\-\_0-9]+$")
+
+
+
+
+
+
+
+
+
