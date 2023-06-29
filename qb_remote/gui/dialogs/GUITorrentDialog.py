@@ -20,11 +20,24 @@ class TorrentDialog(QW.QDialog):
         if self._controller:
             self.preferences = self._controller.get_client_preferences()
             self.categories = self._controller.get_client_categories()
+
+            for cat in self._controller.settings['categories_to_hide']:
+
+                if cat in self.categories:
+
+                    del self.categories[cat]
+
         else:
             raise Exception("Controller cannot be null")
 
+        self.public_torrents_root_directory = CC.PUBLIC_TORRENT_ROOT_FOLDER
         self.og_torrent_root_directory = self.preferences['save_path']
         self.torrent_root_directory = self.preferences['save_path']
+
+        if CC.USE_TORRENT_ROOT_FOLDER:
+            self.og_torrent_root_directory = CC.TORRENT_ROOT_FOLDER
+            self.torrent_root_directory = CC.TORRENT_ROOT_FOLDER
+
 
         if CC.IS_PROFILE_MODE:
 
@@ -58,6 +71,7 @@ class TorrentDialog(QW.QDialog):
 
         self.label_save_location = QW.QLabel("Save files to location: {}".format(self.torrent_root_directory), self)
         self.textbox_save_location = QW.QLineEdit(self)
+        self.textbox_save_location .textChanged.connect(self._save_path_text_changed)
 
         self.label_rename_torrent = QW.QLabel("Rename Torrent: ", self)
         self.textbox_rename_torrent = QW.QLineEdit(self)
@@ -79,6 +93,13 @@ If you do not plan on watching something while it downloads you should uncheck t
         self.checkbox_first_and_last_piece.setToolTip("""Downloads the first and last pieces of the torrent first.
 This is only useful for single-file torrents.
 This may will help or may be required to watch a video or audio file while it downloads.""")
+        self.checkbox_use_set_public_path = QW.QCheckBox(
+            "Use Set Public Path", self
+        )
+        self.checkbox_use_set_public_path.setEnabled(not not self.public_torrents_root_directory)
+        self.checkbox_use_set_public_path.stateChanged.connect(self._use_public_check_changed)
+        self.checkbox_use_set_public_path.setToolTip("""If a public path has been set in the settings, put the torrent into this folder.""")
+        self.label_final_save_location = QW.QLabel(self)
 
         self.button_box = QW.QDialogButtonBox(
             QW.QDialogButtonBox.Ok | QW.QDialogButtonBox.Cancel, self
@@ -99,6 +120,8 @@ This may will help or may be required to watch a video or audio file while it do
         layout.addLayout(layout_2)
         layout.addWidget(self.label_save_location)
         layout.addWidget(self.textbox_save_location)
+        layout.addWidget(self.label_final_save_location)
+        layout.addWidget(self.checkbox_use_set_public_path)
         layout.addWidget(self.label_rename_torrent)
         layout.addWidget(self.textbox_rename_torrent)
         layout.addWidget(self.checkbox_start_torrent)
@@ -112,10 +135,23 @@ This may will help or may be required to watch a video or audio file while it do
         self._torrent_management_mode_changed()
         self._torrent_category_changed()
 
+    def _save_path_text_changed(self):
+        self.label_final_save_location.setText(self.get_final_save_path())
+
+    def _use_public_check_changed(self):
+
+        if self.checkbox_use_set_public_path.isChecked():
+            self.label_save_location.setText("Save files to location: {}".format(self.public_torrents_root_directory))
+        else:
+            self.label_save_location.setText("Save files to location: {}".format(self.torrent_root_directory))
+        self._torrent_category_changed()
+        self.label_final_save_location.setText(self.get_final_save_path())
+
     def _torrent_management_mode_changed(self):
         self.textbox_save_location.setEnabled(not self.is_automatic_torrent_mode())
 
         self._torrent_category_changed()
+        self.label_final_save_location.setText(self.get_final_save_path())
 
     def _torrent_category_changed(self):
         _ = self.dropdown_category.currentText()
@@ -131,15 +167,21 @@ This may will help or may be required to watch a video or audio file while it do
                 if cat:
                     cat_path :str= cat['savePath']
 
-                    if cat_path.startswith(self.og_torrent_root_directory):
-                        cat_path = cat_path[len(self.og_torrent_root_directory) + 1:]
+                    i = cat_path.replace("\\", "/").rfind("/")
+
+                    if i != -1:
+
+                        cat_path = cat_path[i + 1:]
 
                     self.textbox_save_location.setText(cat_path)
                 
                 else:
                     self.textbox_save_location.setText("")
+                
+                self.label_final_save_location.setText(self.get_final_save_path())
 
             return
+
 
         if _ == "None":
             self.textbox_save_location.setText(self.preferences["save_path"])
@@ -205,26 +247,37 @@ This may will help or may be required to watch a video or audio file while it do
 
         return self.dropdown_category.currentText()
 
+    def get_final_save_path(self):
+        save_path = self.textbox_save_location.text().strip()
+
+        if self.is_automatic_torrent_mode():
+            save_path = None
+
+        else:
+                
+            if self.checkbox_use_set_public_path.isChecked() and self.public_torrents_root_directory:
+                save_path = CD.join_path_remote(self.public_torrents_root_directory, self.textbox_save_location.text().strip())
+            else:
+                save_path = CD.join_path_remote(self.torrent_root_directory, self.textbox_save_location.text().strip())
+
+        return save_path
+
+
     def get_magnet_links(self):
         text = self.text_edit.toPlainText()
 
         m = set(CC.MAGNET_LINK_REGEX.findall(text))
         f = set(filter(lambda x: os.path.isfile(x), text.split("\n")))
 
-        save_path = self.textbox_save_location.text().strip()
-
-        if not save_path or self.is_automatic_torrent_mode():
-            save_path = None
-
-        if CC.IS_PROFILE_MODE:
-            save_path = CD.join_path_remote(self.torrent_root_directory, self.textbox_save_location.text().strip())
-
         rename_to = self.textbox_rename_torrent.text().strip()
 
         if not rename_to:
             rename_to = None
 
+        save_path = self.get_final_save_path()
+
         logging.info(save_path)
+        # return {}
 
         return {
             "urls": m,

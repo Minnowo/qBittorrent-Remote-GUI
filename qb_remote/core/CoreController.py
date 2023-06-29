@@ -83,8 +83,9 @@ class ClientController(object):
                     "username" : "root",
                     "password" : "root",
                     "autoconnect" : True ,
-                    "reconnect_on_update" : True 
-                    }
+                    "reconnect_on_update" : True ,
+                    },
+                "categories_to_hide": []
                 }
 
 
@@ -209,9 +210,6 @@ class ClientController(object):
         self._slow_job_scheduler.start()
 
     def init_view(self):
-        job = self.call_repeating(0.0, 15.0, self.sleep_check)
-        self._daemon_jobs["sleep_check"] = job
-
         job = self.call_repeating(10.0, 60.0, self.maintain_memory_fast)
         self._daemon_jobs["maintain_memory_fast"] = job
 
@@ -357,7 +355,7 @@ class ClientController(object):
             CD.load_settings(self.settings)
 
             if self.get_qbittorrent_setting("autoconnect"):
-            self.init_qbittorrent_connection()
+                self.init_qbittorrent_connection()
 
         except CE.Shutdown_Exception as e:
             logging.error(e)
@@ -500,6 +498,7 @@ class ClientController(object):
         try:
 
             if CC.IS_PROFILE_MODE:
+                self.create_client_tag()
                 tags = magnet_links_and_info.get('tags', None)
 
                 if tags is None:
@@ -549,7 +548,6 @@ class ClientController(object):
 
 
     def get_client_id(self, include_prefix:bool = True):
-        self.create_client_tag()
 
         _ = CC.DEFAULT_CLIENT_ID
 
@@ -584,8 +582,6 @@ class ClientController(object):
 
     def create_client_tag(self):
 
-        if not self.qbittorrent_initialized:
-            return
         client_tag =  CD.get_guid()
 
         if not self.client_id:
@@ -593,6 +589,8 @@ class ClientController(object):
 
         logging.info(f"Client ID: {client_tag}")
 
+        if not self.qbittorrent_initialized:
+            return
         if CC.IS_PROFILE_MODE:
             self.qbittorrent.torrents_create_tags(['user_' + client_tag])
 
@@ -602,7 +600,6 @@ class ClientController(object):
         passes = True
 
         if CC.IS_PROFILE_MODE:
-            self.create_client_tag()
 
             tags = torrent_dict.get('tags', None)
 

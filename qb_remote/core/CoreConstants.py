@@ -29,6 +29,11 @@ IS_PROFILE_MODE = False
 # overwrites personal setting of the client id, using a hardware id instead
 USE_HARDWARE_ID = False
 
+# to manually set a root folder for all torrents,
+# otherwise it will automatically use the default qbittorrent folder
+USE_TORRENT_ROOT_FOLDER = False
+TORRENT_ROOT_FOLDER = "/mnt"
+PUBLIC_TORRENT_ROOT_FOLDER = "/mnt/public"
 
 TORRENT_CACHE_TIME_SECONDS = 3
 

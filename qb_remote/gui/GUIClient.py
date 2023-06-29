@@ -297,13 +297,20 @@ class ClientWindow(QW.QMainWindow):
     def _search_pressed(self):
         if self.pause:
             return
+
         search = self.input_box.text()
+
+        use_ignorecase = not not re.search(r"[A-Z]", search)
 
         root_item = self._torrent_list_new.invisibleRootItem()
 
         for i in range(root_item.childCount()):
             item = root_item.child(i)
-            item.setHidden(not re.search(search, item.text(0)))
+
+            if use_ignorecase:
+                item.setHidden(not re.search(search, item.text(0)))
+            else:
+                item.setHidden(not re.search(search, item.text(0), re.IGNORECASE))
 
     def _build_treewidget_recursive(
         self, nested_struct: CD.NestedTorrentFileDirectory, parent=None
