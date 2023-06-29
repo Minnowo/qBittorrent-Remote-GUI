@@ -214,8 +214,10 @@ class ClientController(object):
         self._daemon_jobs["maintain_memory_fast"] = job
 
     def maintain_memory_fast(self):
-        sys.stdout.flush()
-        sys.stderr.flush()
+        if sys.stdout:
+            sys.stdout.flush()
+        if sys.stderr:
+            sys.stderr.flush()
 
         self._fast_job_scheduler.clear_out_dead()
         self._slow_job_scheduler.clear_out_dead()
