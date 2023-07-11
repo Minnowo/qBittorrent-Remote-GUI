@@ -76,6 +76,7 @@ class ClientController(object):
 
         self.qbittorrent: qbittorrentapi.Client = qbittorrentapi.Client()
         self.qbittorrent_initialized : bool = False
+        self.qbittorrent_lock :threading.Lock = threading.Lock()
         self.settings   = {
                 "qbit" : {
                     "host" : "127.0.0.1",
@@ -210,10 +211,15 @@ class ClientController(object):
         self._slow_job_scheduler.start()
 
     def init_view(self):
-        job = self.call_repeating(10.0, 60.0, self.maintain_memory_fast)
+        job = self.call_repeating(10.0, 5*60.0, self.maintain_memory_fast)
         self._daemon_jobs["maintain_memory_fast"] = job
 
+        job = self.call_later(10, self.post_boot)
+
     def maintain_memory_fast(self):
+
+        logging.info("Maintaining memory")
+
         if sys.stdout:
             sys.stdout.flush()
         if sys.stderr:
@@ -268,7 +274,7 @@ class ClientController(object):
 
     def sleep_check(self):
         with self._sleep_lock:
-            logging.debug("Sleep check")
+            logging.info("Sleep check")
 
             # it has been way too long since this method last fired, so we've prob been asleep
             if CD.time_has_passed(self.get_timestamp("last_sleep_check") + 60):
@@ -311,28 +317,36 @@ class ClientController(object):
         if self.qbittorrent_initialized:
             self.shutdown_qbittorrent_connection()
 
-        self.qbittorrent._password = self.settings['qbit']['password'] 
-        self.qbittorrent.username = self.settings['qbit']['username'] 
-        self.qbittorrent.host = self.settings['qbit']['host'] 
-        self.qbittorrent.port = self.settings['qbit']['port'] 
+        with self.qbittorrent_lock:
 
-        try:
-            self.qbittorrent.auth_log_in(timeout=5)
-            logging.info(CD.get_client_build_information(self.qbittorrent))
-            self.qbittorrent_initialized = True
-        except qbittorrentapi.LoginFailed as e:
-            logging.warn(e)
-        except qbittorrentapi.APIConnectionError as e:
-            logging.error(e)
+            self.qbittorrent._password = self.settings['qbit']['password'] 
+            self.qbittorrent.username = self.settings['qbit']['username'] 
+            self.qbittorrent.host = self.settings['qbit']['host'] 
+            self.qbittorrent.port = self.settings['qbit']['port'] 
+
+            try:
+                logging.info(f"Trying to connect to qBittorrent at {self.qbittorrent.host}:{self.qbittorrent.port}")
+                self.qbittorrent.auth_log_in()
+                logging.info(CD.get_client_build_information(self.qbittorrent))
+                self.qbittorrent_initialized = True
+            except qbittorrentapi.LoginFailed as e:
+                logging.warn(e)
+            except qbittorrentapi.APIConnectionError as e:
+                logging.error(e)
 
 
 
     def shutdown_qbittorrent_connection(self):
 
+        with self.qbittorrent_lock:
 
-        self.qbittorrent.auth_log_out()
-        self.qbittorrent_initialized = False
+            self.qbittorrent.auth_log_out()
+            self.qbittorrent_initialized = False
 
+    def post_boot(self):
+
+        if self.get_qbittorrent_setting("autoconnect"):
+            self.init_qbittorrent_connection()
 
     def boot_everything_base(self):
         # try:
@@ -356,8 +370,6 @@ class ClientController(object):
 
             CD.load_settings(self.settings)
 
-            if self.get_qbittorrent_setting("autoconnect"):
-                self.init_qbittorrent_connection()
 
         except CE.Shutdown_Exception as e:
             logging.error(e)
