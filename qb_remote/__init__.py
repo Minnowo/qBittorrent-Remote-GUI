@@ -22,7 +22,8 @@ from .core import CoreLogging as logging
 
 def main():
     load_dotenv()
-    logging.setup_logger()
+    logging.setup_logging()
+    logging.add_unhandled_exception_hook()
 
     client_controller = Controller.ClientController()
     client_controller.boot_everything_base()
