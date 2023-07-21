@@ -1,4 +1,5 @@
 import os
+import math
 
 import qtpy
 
@@ -6,6 +7,7 @@ from qtpy import QtCore as QC
 from qtpy import QtWidgets as QW
 from qtpy import QtGui as QG
 
+from ..core import CoreData as CD
 
 def iter_qtreewidget_items(qtreewidget: QW.QTreeWidget):
     root_item = qtreewidget.invisibleRootItem()
@@ -101,3 +103,46 @@ def get_darkModePalette( app=None ) :
     darkPalette.setColor(QG.QPalette.Disabled, QG.QPalette.HighlightedText, FOREGROUND_DISABLED )
 
     return darkPalette
+
+
+class InfiniteProgressBar(QW.QProgressBar):
+    def __init__(self, step_amount=10,timer_speed_ms=100):
+        super().__init__()
+
+        self.timer_delay = timer_speed_ms
+        self.step_amount = step_amount
+
+        self.timer = QC.QTimer(self)
+        self.timer.timeout.connect(self.update_progress)
+
+        self.progress_value = 0
+
+    def update_progress(self):
+        if self.step_amount < 0:
+            self.progress_value = (int(self.progress_value + self.never_reach_100_func(self.progress_value)) ) % 100
+        else:
+            self.progress_value = (self.progress_value + self.step_amount) % 100
+        self.setValue(self.progress_value)
+
+    def stop_progress(self):
+        self.timer.stop()
+
+    def start_progress(self):
+        self.timer.start(self.timer_delay)
+
+    def reset_progress(self):
+        self.progress_value = 0
+        self.reset()
+
+
+    def never_reach_100_func(self, x):
+
+        if x <= 0:
+            return 1.0
+        elif x >= 100:
+            return 0.0
+
+        scaling_factor =  5 
+        decay_rate = x / 5750   
+
+        return scaling_factor * math.exp(-decay_rate * x)

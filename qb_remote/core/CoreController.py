@@ -1,5 +1,5 @@
-from logging import warn
 import sys, os
+import logging
 import json
 import traceback
 import time
@@ -11,42 +11,35 @@ from typing import Callable
 
 import qbittorrentapi
 from qbittorrentapi import SyncMainDataDictionary
+from qbittorrentapi.exceptions import NotFound404Error
 
 from . import CoreGlobals as CG
 from . import CoreExceptions as CE
 from . import CoreData as CD
 from . import CoreConstants as CC
 from . import CoreCaches as Cache
-from . import CoreLogging as logging
 from . import CoreThreading
 
+class ClientControllerUser():
 
-class ClientController(object):
+    CONTROLLER:"ClientController" = None
+
+class ClientController(ClientControllerUser):
     def __init__(self):
-        CG.controller = self
+
+        ClientControllerUser.CONTROLLER = self
 
         self._name: str = CC.BRAND
 
         self._daemon_jobs: dict[str, CoreThreading.Schedulable_Job] = {}
-        self._caches: dict[str, Cache.Data_Cache] = {}
-        self._expiring_caches: dict[str, Cache.Expiring_Data_Cache] = {}
+        self._caches:list[Cache.Data_Cache] = [] 
+        self._expiring_caches:list[Cache.Expiring_Data_Cache] = [] 
 
         self._call_to_threads: list[CoreThreading.Thread_Call_To_Thread] = []
 
-        self.torrent_files_cache = Cache.Expiring_Data_Cache(
-            "torrent_files_cache", CC.TORRENT_CACHE_TIME_SECONDS
-        )
-        self.torrent_metadata_cache = Cache.Data_Cache("torrent_files_cache")
-        self.file_priority_transaction_cache = Cache.Data_Cache("torrent_files_cache")
-        self.syncronized_torrent_metadata_cache = Cache.Data_Cache(
-            "syncronized_torrent_files_cache"
-        )
-        self.client_cache = Cache.Data_Cache("client_cache")
-        self._caches["client_cache"] = self.client_cache
-        self._caches["torrent_files_cache"] = self.torrent_files_cache
-        self._caches["torrent_metadata_cache"] = self.torrent_metadata_cache
-        self._caches["file_priority_transaction_cache"] = self.file_priority_transaction_cache
-        self._caches["syncronized_torrent_metadata_cache"] = self.syncronized_torrent_metadata_cache
+
+        self.qbittorrent_cache = Cache.Data_Cache("qbittorrent")
+        self._caches.append(self.qbittorrent_cache)
 
         self._fast_job_scheduler:CoreThreading.Job_Scheduler = None
         self._slow_job_scheduler:CoreThreading.Job_Scheduler = None
@@ -195,9 +188,6 @@ class ClientController(object):
 
     def get_boot_time(self):
         return self.get_timestamp("boot")
-
-    def get_cache(self, name):
-        return self._caches[name]
 
     def get_timestamp(self, name: str) -> int:
         with self._timestamps_lock:
@@ -408,29 +398,6 @@ class ClientController(object):
 
     ### Torrent Stuff
 
-    def sync_get_metadata(self):
-
-        if not self.qbittorrent_initialized:
-            return
-        cache = self.get_cache("syncronized_torrent_metadata_cache")
-
-        with cache.get_lock():
-            synced_meta: SyncMainDataDictionary |None= cache.get_if_has_data_unsafe(
-                "syncronized_metadata"
-            )
-
-            if not synced_meta:
-                synced_meta = self.qbittorrent.sync.maindata.delta()
-
-                cache.add_data_unsafe("syncronized_metadata", synced_meta, True)
-
-                return synced_meta
-
-            else:
-                updated_metadata = self.qbittorrent.sync.maindata.delta()
-                CD.update_dictionary_no_key_remove(synced_meta, updated_metadata)
-
-                return updated_metadata
 
     def get_metadata_delta(self):
         if not self.qbittorrent_initialized:
@@ -439,7 +406,33 @@ class ClientController(object):
 
         return updated_metadata
 
-    def get_torrents(self, skip_cache=False, **kwargs):
+
+    def get_torrents_files(self, torrent_hash : str):
+        if not self.qbittorrent_initialized:
+            return
+
+        CACHE_KEY = f"torrent_files_{torrent_hash}"
+        CACHE = self.qbittorrent_cache
+
+        data = CACHE.get_if_has_data(CACHE_KEY)
+
+        if data:
+            logging.debug(f"Cache hit for torrent hash: {torrent_hash}")
+            return data
+
+        try:
+            data = self.CONTROLLER.qbittorrent.torrents_files(torrent_hash)
+
+            CACHE.add_data(CACHE_KEY, data, True)
+
+            return data
+
+        except NotFound404Error:
+            logging.warning(f"Could not find torrent with hash: {torrent_hash}")
+
+
+
+    def get_torrents(self, skip_cache=False, cache_key=None, **kwargs):
         """
         Gets all torrent files, either from a cache or fresh,
 
@@ -448,29 +441,30 @@ class ClientController(object):
         if not self.qbittorrent_initialized:
             return
 
-        if not skip_cache and not kwargs:
-            data = self.torrent_files_cache.get_if_has_non_expired_data("torrent_list")
+        if skip_cache or (kwargs and cache_key is None):
 
-            if data:
-                logging.debug("Cache hit for 'torrent_list'")
-                return data
-            else:
-                logging.debug("Cache miss for 'torrent_list'")
+            logging.debug(
+                f"Custom call to torrent_info, skipping cache. kwargs = {kwargs}, skip_cache = {skip_cache}"
+            )
 
-            data = self.qbittorrent.torrents_info(**kwargs)
+            return self.qbittorrent.torrents_info(**kwargs)
 
-            self.torrent_files_cache.add_data("torrent_list", data, True)
+        CACHE = self.qbittorrent_cache
+        CACHE_KEY = cache_key or "torrents"
+        TIMESTAMP = "torrents_cache"
 
-            return data
+        data = CACHE.get_if_has_data(CACHE_KEY)
 
-        logging.debug(
-            f"Custom call to torrent_info, skipping cache. kwargs = {kwargs}, skip_cache = {skip_cache}"
-        )
+        if not data or CD.time_has_passed(self.get_timestamp(TIMESTAMP) + 60):
 
-        return self.qbittorrent.torrents_info(**kwargs)
+            data = self.qbittorrent.torrents_info()
+
+            CACHE.add_data(CACHE_KEY, data, True)
+
+        return data
 
     def update_torrents_file_priority_transactional(
-        self, torret_hash: str, file_id: int, priority: int
+        self, torrent_hash: str, file_id: int, priority: int
     ):
         """
         Updates the torrents files priority after 2 seconds,
@@ -482,29 +476,47 @@ class ClientController(object):
         if not self.qbittorrent_initialized:
             return
 
-        if not self.file_priority_transaction_cache.has_data(torret_hash):
-            self.file_priority_transaction_cache.add_data(
-                torret_hash, {"file_ids": [file_id], "priority": priority}, True
+        CACHE_KEY = f"file_priority_transaction_{torrent_hash}"
+        CACHE = self.qbittorrent_cache
+
+
+        if CACHE.has_data(CACHE_KEY):
+            CACHE.get_data(CACHE_KEY)["file_ids"].append(file_id)
+            return
+
+
+        CACHE.add_data(
+            CACHE_KEY, {"file_ids": [file_id], "priority": priority}, True
+        )
+
+        def callback(cache_key, torrent_hash):
+
+            data = CACHE.get_if_has_data(cache_key, True)
+
+            if not data:
+                return
+
+            logging.info(f"Updating torrent priority for {torrent_hash}")
+
+            self.qbittorrent.torrents_file_priority(
+                torrent_hash, data["file_ids"], data["priority"]
             )
 
-            def callback(torrent_hash):
-                c = self.get_cache("file_priority_transaction_cache")
+        self.call_later(2, callback, CACHE_KEY, torrent_hash)
 
-                data = c.get_if_has_data(torrent_hash, True)
+    def set_torrents_paused(self, torrent_hash: list[str]):
 
-                if not data:
-                    return
+        if not self.qbittorrent_initialized:
+            return
 
-                logging.info(f"Updating torrent priority for {torrent_hash}")
+        self.qbittorrent.torrents_pause(torrent_hash)
 
-                self.qbittorrent.torrents_file_priority(
-                    torrent_hash, data["file_ids"], data["priority"]
-                )
+    def set_torrents_resume(self, torrent_hash: list[str]):
 
-            self.call_later(2, callback, torret_hash)
+        if not self.qbittorrent_initialized:
+            return
 
-        else:
-            self.file_priority_transaction_cache.get_data(torret_hash)["file_ids"].append(file_id)
+        self.qbittorrent.torrents_resume(torrent_hash)
 
     def upload_torrents(self, magnet_links_and_info: dict[str]):
         if not self.qbittorrent_initialized:
@@ -529,8 +541,10 @@ class ClientController(object):
     def get_client_preferences(self, skip_cache=False):
         if not self.qbittorrent_initialized:
             return
+
         TIMESTAMP = "update_pref_cache"
         CACHE_KEY = "app_preferences"
+        CACHE = self.qbittorrent_cache
 
         self.get_client_categories()
 
@@ -539,14 +553,15 @@ class ClientController(object):
 
             a = self.qbittorrent.app_preferences()
 
-            self.client_cache.add_data(CACHE_KEY, a, True)
+            CACHE.add_data(CACHE_KEY, a, True)
             return a
 
-        return self.client_cache.get_if_has_data(CACHE_KEY)
+        return CACHE.get_if_has_data(CACHE_KEY)
 
     def get_client_categories(self, skip_cache=False):
         if not self.qbittorrent_initialized:
             return
+
         TIMESTAMP = "update_cat_cache"
         CACHE_KEY = "torrent_categories"
 
@@ -555,10 +570,10 @@ class ClientController(object):
 
             a = self.qbittorrent.torrents_categories()
 
-            self.client_cache.add_data(CACHE_KEY, a, True)
+            self.qbittorrent_cache.add_data(CACHE_KEY, a, True)
             return a
 
-        return self.client_cache.get_if_has_data(CACHE_KEY)
+        return self.qbittorrent_cache.get_if_has_data(CACHE_KEY)
 
 
     def get_client_id(self, include_prefix:bool = True):

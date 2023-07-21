@@ -1,4 +1,5 @@
 import os
+import logging
 import qtpy
 
 from qtpy import QtCore as QC
@@ -8,7 +9,6 @@ from qtpy import QtGui as QG
 from ...core import CoreConstants as CC
 from ...core import CoreGlobals as CG
 from ...core import CoreData as CD
-from ...core import CoreLogging as logging
 
 
 class TorrentDialog(QW.QDialog):

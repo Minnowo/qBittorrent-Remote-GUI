@@ -4,6 +4,7 @@ import time
 import queue
 import traceback
 import os
+import logging
 import random
 import bisect
 from typing import Callable, TYPE_CHECKING
@@ -11,7 +12,6 @@ from typing import Callable, TYPE_CHECKING
 from . import CoreData as CD
 from . import CoreExceptions as CE
 from . import CoreGlobals as CG
-from . import CoreLogging as logging
 
 if TYPE_CHECKING:
     from . import CoreController as Controller

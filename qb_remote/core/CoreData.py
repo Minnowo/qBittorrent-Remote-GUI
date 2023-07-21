@@ -36,24 +36,33 @@ def get_client_build_information(qbittorrent):
 def size_bytes_to_pretty_str(size_bytes: int):
     if size_bytes == 0:
         return "0B"
+    
+    is_negative = False
+    if size_bytes < 0:
+        size_bytes *= -1
+        is_negative = True
+
     size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
     i = int(math.floor(math.log(size_bytes, 1024)))
     p = math.pow(1024, i)
     s = round(size_bytes / p, 2)
+
+    if is_negative:
+        s *= -1
     return "%s %s" % (s, size_name[i])
 
 
 def get_pretty_download_priority(priority):
-    if priority == CC.TORRENT_PRIORITY_DO_NOT_DOWNLOAD:
+    if priority == CC.TORRENT_FILE_PRIORITY_DO_NOT_DOWNLOAD:
         return "Do Not Download"
 
-    if priority == CC.TORRENT_PRIORITY_NORMAL:
+    if priority == CC.TORRENT_FILE_PRIORITY_NORMAL:
         return "Normal"
 
-    if priority == CC.TORRENT_PRIORITY_HIGH:
+    if priority == CC.TORRENT_FILE_PRIORITY_HIGH:
         return "High"
 
-    if priority == CC.TORRENT_PRIORITY_MAXIMUM:
+    if priority == CC.TORRENT_FILE_PRIORITY_MAXIMUM:
         return "Maximum"
 
     return "Unknown"

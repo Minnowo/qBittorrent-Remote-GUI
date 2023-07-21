@@ -1,5 +1,7 @@
 import sys
+import logging
 import json
+import concurrent.futures
 import os
 import random
 import numpy as np
@@ -14,22 +16,21 @@ from qtpy import QtCore as QC
 from qtpy import QtWidgets as QW
 from qtpy import QtGui as QG
 
-from ..core import CoreController as Controller
+from ..core import CoreController 
 from ..core import CoreCaches as Cache
 from ..core import CoreGlobals as CG
 from ..core import CoreData as CD
 from ..core import CoreConstants as CC
-from ..core import CoreLogging as logging
 
 from . import GUICommon
+from . import GUITreeWidget
 from . import dialogs
+from . import GUIThreading
 
 
-class ClientWindow(QW.QMainWindow):
-    def __init__(self, controller: Controller.ClientController):
+class ClientWindow(QW.QMainWindow, CoreController.ClientControllerUser):
+    def __init__(self):
         super().__init__()
-
-        self._controller = controller
 
         self.selected_torrent_hash: str = ""
 
@@ -46,42 +47,49 @@ class ClientWindow(QW.QMainWindow):
         self.split_panel = QW.QSplitter(self.panel)
         self.split_panel.setOrientation(QC.Qt.Orientation.Vertical)
 
-        self.input_box = QW.QLineEdit()
-        self.input_box.setPlaceholderText("Regex for torrent name")
-        self.input_box.returnPressed.connect(self._search_pressed)
+        input_box = QW.QLineEdit()
+        input_box.setPlaceholderText("Regex for torrent name")
+        input_box.returnPressed.connect(self._search_pressed)
 
-        self.search_button = QW.QPushButton("Search")
-        self.search_button.clicked.connect(self._search_pressed)
+        search_button = QW.QPushButton("Search")
+        search_button.clicked.connect(self._search_pressed)
 
-        def debug():
-            # controller.sync_metadata()
-            pass
+        update_torrent_list_button = QW.QPushButton("Update Torrents")
+        update_torrent_list_button.clicked.connect(self.update_torrent_list)
 
-        self.debug_button = QW.QPushButton("Debug")
-        self.debug_button.clicked.connect(debug)
+
+
 
         self.status_text_template = "Free Space: {}   DHT: {}   Download: {}   Upload: {}"
         self.status_label = QW.QLabel(self.status_text_template)
         self.status_label.setAlignment(QC.Qt.AlignRight)
 
+        self.infite_progress_bar = GUICommon.InfiniteProgressBar(step_amount=-1)
+        self.infite_progress_bar.setVisible(False)
+
         self.status_bar = QW.QStatusBar(self)
         self.status_bar.addWidget(self.status_label)
+        self.status_bar.addWidget(self.infite_progress_bar)
 
-        self.update_torrent_list_button = QW.QPushButton("Update Torrents")
-        self.update_torrent_list_button.clicked.connect(self.update_torrent_list)
 
-        self._torrent_list_new = QW.QTreeWidget()
-        self._torrent_list_new.setColumnCount(6)
-        self._torrent_list_new.setSortingEnabled(True)
-        self._torrent_list_new.header().setSectionResizeMode(QW.QHeaderView.ResizeToContents)
-        self._torrent_list_new.header().setStretchLastSection(False)
-        self._torrent_list_new.setHeaderLabels(
+
+        ### torrent list start
+        self._torrent_list = GUITreeWidget.TorrentListTreeWidget()
+        self._torrent_list.setContextMenuPolicy(QC.Qt.CustomContextMenu)
+        self._torrent_list.setColumnCount(6)
+        self._torrent_list.setSortingEnabled(True)
+        self._torrent_list.header().setSectionResizeMode(QW.QHeaderView.ResizeToContents)
+        self._torrent_list.header().setStretchLastSection(False)
+        self._torrent_list.setHeaderLabels(
             ["Name", "Size", "Progress", "Status", "Ratio", "Availability", "Download", "Upload"]
         )
-        self._torrent_list_new.itemClicked.connect(self._list_item_click)
 
-        self.file_tree = QW.QTreeWidget()
-        self.file_tree.setContextMenuPolicy(QC.Qt.CustomContextMenu)
+        
+        self._torrent_list.itemSelectionChanged.connect(self._list_item_selection_changed)
+        ### torrent list end
+
+
+        self.file_tree = GUITreeWidget.ExtendedQTreeWidget()
         self.file_tree.setSortingEnabled(True)
         self.file_tree.header().setSectionResizeMode(QW.QHeaderView.ResizeToContents)
         self.file_tree.header().setStretchLastSection(False)
@@ -90,31 +98,42 @@ class ClientWindow(QW.QMainWindow):
         self.file_tree.setHeaderLabels(
             ["Name", "Total Size", "Progress", "Download Priority", "Ramaining", "Availability"]
         )
-        self.file_tree.customContextMenuRequested.connect(self._right_click_menu)
         self.file_tree.itemChanged.connect(self._item_checkbox_changed)
+
+
+        menu = QW.QMenu()
+
+        toggle_action = QW.QAction("Toggle Checkbox", menu)
+        toggle_action.triggered.connect(self._toggle_selected_files)
+        menu.addAction(toggle_action)
+
+        self.file_tree.set_menu(menu)
+
+
+
+
 
         self.file_menu = self.menuBar().addMenu("File")
         self.add_torrent_file_action = self.file_menu.addAction("Add Torrent(s)")
         self.add_torrent_file_action.triggered.connect(self._handle_magnet_dialog)
 
         self.login_menu = self.file_menu.addAction("Connect")
-        self.login_menu.triggered.connect(self._controller.init_qbittorrent_connection)
+        self.login_menu.triggered.connect(self.CONTROLLER.init_qbittorrent_connection)
         self.logout_menu = self.file_menu.addAction("Disconnect")
-        self.logout_menu.triggered.connect(self._controller.shutdown_qbittorrent_connection)
+        self.logout_menu.triggered.connect(self.CONTROLLER.shutdown_qbittorrent_connection)
 
         self.settings_action = self.menuBar().addAction("Settings")
         self.settings_action.triggered.connect(self._open_settings_dialog)
 
         # self.split_panel.addWidget(self.torrent_list)
-        self.split_panel.addWidget(self._torrent_list_new)
+        self.split_panel.addWidget(self._torrent_list)
         self.split_panel.addWidget(self.file_tree)
 
         layout = QW.QVBoxLayout()
         layout_2 = QW.QHBoxLayout()
-        layout_2.addWidget(self.input_box)
-        layout_2.addWidget(self.search_button)
-        layout_2.addWidget(self.update_torrent_list_button)
-        layout_2.addWidget(self.debug_button)
+        layout_2.addWidget(input_box)
+        layout_2.addWidget(search_button)
+        layout_2.addWidget(update_torrent_list_button)
         layout.addLayout(layout_2)
         layout.addWidget(self.split_panel)
         self.panel.setLayout(layout)
@@ -122,21 +141,24 @@ class ClientWindow(QW.QMainWindow):
         self.setStatusBar(self.status_bar)
         self.setCentralWidget(self.panel)
 
+        self.load_torrents_files_timer = QC.QTimer(self)
+        self.load_torrents_files_timer.timeout.connect(self._load_torrents_files_timer_tick)
+        self.LOAD_TORRENTS_FILES_TIMER_INTERVAL_MS = 200
+
+        self._threads = []
+
         self.torrent_tree_list_cache = Cache.Expiring_Data_Cache(
             "tree list data cache", CC.TORRENT_CACHE_TIME_SECONDS
         )
-
-        self.global_state_cache = Cache.Data_Cache("globalstate")
-        self.global_state_cache.add_data("server_state", {})
 
         self._update_metadata()
 
     def _update_metadata(self):
 
-        if self.pause or not self._controller.is_qbittorrent_ok():
+        if self.pause or not self.CONTROLLER.is_qbittorrent_ok():
             return
 
-        delta = self._controller.get_metadata_delta()
+        delta = self.CONTROLLER.get_metadata_delta()
 
 
         if not delta:
@@ -145,18 +167,32 @@ class ClientWindow(QW.QMainWindow):
         server_state = delta.get("server_state", None)
 
         if server_state:
-            CD.update_dictionary_no_key_remove(
-                self.global_state_cache.get_data("server_state"), server_state
-            )
 
-            server_state = self.global_state_cache.get_data("server_state")
+            CACHE_KEY = "server_state"
+            CACHE = self.CONTROLLER.qbittorrent_cache
+
+            cached_state = CACHE.get_if_has_data(CACHE_KEY, True)
+
+            if cached_state:
+
+                CD.update_dictionary_no_key_remove(
+                    cached_state, server_state
+                )
+
+                CACHE.add_data(CACHE_KEY, cached_state, True)
+
+                server_state = cached_state
+
+            else:
+                CACHE.add_data(CACHE_KEY, server_state, True)
+
 
             self.status_label.setText(
                 self.status_text_template.format(
-                    CD.size_bytes_to_pretty_str(server_state["free_space_on_disk"]),
-                    server_state["dht_nodes"],
-                    CD.size_bytes_to_pretty_str(server_state["dl_info_speed"]),
-                    CD.size_bytes_to_pretty_str(server_state["up_info_speed"]),
+                    CD.size_bytes_to_pretty_str(server_state.get("free_space_on_disk", -1)),
+                    server_state.get("dht_nodes","-1"),
+                    CD.size_bytes_to_pretty_str(server_state.get("dl_info_speed", -1)),
+                    CD.size_bytes_to_pretty_str(server_state.get("up_info_speed", -1)),
                 )
                 + f"   RID: {delta.rid}"
             )
@@ -171,7 +207,7 @@ class ClientWindow(QW.QMainWindow):
         existing_hashes = set()
         items_to_remove = []
 
-        for item in GUICommon.iter_qtreewidget_items(self._torrent_list_new):
+        for item in GUICommon.iter_qtreewidget_items(self._torrent_list):
             torrent_hash = item.data(0, QC.Qt.UserRole)
 
             if torrent_hash in torrents_removed:
@@ -203,7 +239,7 @@ class ClientWindow(QW.QMainWindow):
             if "upspeed" in t:
                 item.setText(7, CD.size_bytes_to_pretty_str(t.upspeed))
 
-        _ = self._torrent_list_new.invisibleRootItem()
+        _ = self._torrent_list.invisibleRootItem()
         for item in items_to_remove:
             _.removeChild(item)
 
@@ -212,34 +248,41 @@ class ClientWindow(QW.QMainWindow):
 
                 metadata = torrents[hash]
 
-                if not self._controller.torrent_passes_filter(metadata):
+                if not self.CONTROLLER.torrent_passes_filter(metadata):
                     continue
 
                 item = self.get_torrent_tree_widget_item(metadata)
                 item.setData(0, QC.Qt.UserRole, hash)
-                self._torrent_list_new.insertTopLevelItem(0, item)
+                self._torrent_list.insertTopLevelItem(0, item)
 
     def _handle_magnet_dialog(self):
 
-        if not self._controller.is_qbittorrent_ok():
+        if not self.CONTROLLER.is_qbittorrent_ok():
             return
 
-        magnets = dialogs.show_add_magnet_link_dialog(self._controller, self)
+        magnets = dialogs.show_add_magnet_link_dialog(self.CONTROLLER, self)
 
         a = magnets.get('torrent_files', None)
         b = magnets.get('urls', None)
 
         if a or b:
-            self._controller.upload_torrents(magnets)
+            self.CONTROLLER.upload_torrents(magnets)
 
 
     def _open_settings_dialog(self):
 
-        dialogs.SettingsDialog(self._controller).exec_()
+        dialogs.SettingsDialog(self.CONTROLLER).exec_()
+
+   
+    def _toggle_selected_files(self):
+
+        for item in self.file_tree.selectedItems():
+
+            item.setCheckState(0, GUICommon.get_flipped_check_state(item.checkState(0)))
 
 
     def _item_checkbox_changed(self, item, column):
-        if not item or self.pause or not self._controller.is_qbittorrent_ok():
+        if not item or self.pause or not self.CONTROLLER.is_qbittorrent_ok():
             return
 
         info = item.data(0, QC.Qt.UserRole)
@@ -256,16 +299,17 @@ class ClientWindow(QW.QMainWindow):
         id = info["id"]
 
         if item.checkState(column) == QC.Qt.Checked:
-            priority = CC.TORRENT_PRIORITY_NORMAL
+            priority = CC.TORRENT_FILE_PRIORITY_NORMAL
 
         else:
-            priority = CC.TORRENT_PRIORITY_DO_NOT_DOWNLOAD
+            priority = CC.TORRENT_FILE_PRIORITY_DO_NOT_DOWNLOAD
 
-        self._controller.update_torrents_file_priority_transactional(
+        self.CONTROLLER.update_torrents_file_priority_transactional(
             self.selected_torrent_hash, id, priority
         )
 
-    def _right_click_menu(self, position):
+    def _torrent_right_click_menu(self, position): 
+
         indexes = self.file_tree.selectedIndexes()
 
         def toggle_action_callback():
@@ -283,16 +327,120 @@ class ClientWindow(QW.QMainWindow):
         toggle_action.triggered.connect(toggle_action_callback)
         menu.addAction(toggle_action)
 
-        menu.exec_(self.file_tree.viewport().mapToGlobal(position))
+        menu.exec_(self._torrent_list.viewport().mapToGlobal(position))
 
-    def _list_item_click(self, list_item: QW.QListWidgetItem):
-        if self.pause:
+    def _build_treewidget_recursive(
+                self, nested_struct: CD.NestedTorrentFileDirectory, parent=None, style=None
+        ):
+            if parent is None:
+                parent = QW.QTreeWidgetItem(["/"])
+
+            for name, child in nested_struct.children.items():
+
+                if child.torrents_file:
+                    item = QW.QTreeWidgetItem(
+                        [
+                            name,
+                            CD.size_bytes_to_pretty_str(child.size),
+                            f"{child.torrents_file.progress * 100:.2f}%",
+                            CD.get_pretty_download_priority(child.torrents_file.priority),
+                            "",
+                            f"{child.torrents_file.availability}",
+                        ]
+                    )
+                    item.setData(0, QC.Qt.UserRole, child.torrents_file)
+
+                    item.setFlags(item.flags() | QC.Qt.ItemFlag.ItemIsUserCheckable)
+
+                    if child.torrents_file.priority == 0:
+                        item.setCheckState(0, QC.Qt.CheckState.Unchecked)
+                    else:
+                        p = parent
+                        while p.parent():
+                            p.setCheckState(0, QC.Qt.CheckState.Checked)
+                            p = p.parent()
+                            p.setCheckState(0, QC.Qt.CheckState.Checked)
+
+                        item.setCheckState(0, QC.Qt.CheckState.Checked)
+                else:
+                    item = QW.QTreeWidgetItem(
+                        [
+                            name,
+                            CD.size_bytes_to_pretty_str(child.size),
+                            f"{child.get_progress() * 100:.3f}%",
+                        ]
+                    )
+                    item.setFlags(item.flags() | QC.Qt.ItemFlag.ItemIsUserCheckable)
+                    item.setCheckState(0, QC.Qt.CheckState.Unchecked)
+                    item.setIcon(0, self.style().standardIcon(QW.QStyle.SP_DirOpenIcon))
+
+                parent.addChild(item)
+
+                self._build_treewidget_recursive(child, item, style=style)
+
+            return parent
+
+
+
+
+
+    def _load_torrents_files_timer_tick(self):
+        if self.pause or not self.CONTROLLER.is_qbittorrent_ok():
+            self.load_torrents_files_timer.stop()
             return
-        t_hash = list_item.data(0, QC.Qt.UserRole)
 
+        self.load_torrents_files_timer.stop()
+        self.show_infinite_progress()
+
+        def c(x): return self.CONTROLLER.get_torrents_files(x), x
+
+
+        w = GUIThreading.WorkerThread(
+            c,
+            self.selected_torrent_hash
+        )
+        w.finished2.connect(self._on_torrent_files_loaded)
+        w.start()
+        
+        self._threads.append(w)
+        self._threads = list(filter(lambda x : not x.isFinished(), self._threads))
+
+
+
+    @QC.Slot(object)
+    def _on_torrent_files_loaded(self, *args):
+
+        # holy this is stupid
+        a = args[0]
+
+        torrent_files, torrent_hash = a
+
+        if torrent_hash != self.selected_torrent_hash:
+            return
+
+        self.set_tree_contents(torrent_files, torrent_hash)
+
+        self.hide_infinite_progress()
+
+
+    def _list_item_selection_changed(self):
+        if self.pause or not self.CONTROLLER.is_qbittorrent_ok():
+            return
+
+        item = self._torrent_list.selectedItems()
+
+        if not item:
+            return 
+
+        item = item[0]
+
+        t_hash = item.data(0, QC.Qt.UserRole)
+        
         self.selected_torrent_hash = t_hash
 
-        self.load_file_for_torrent(t_hash)
+        self.load_selected_torrents_files()
+
+
 
     def _search_pressed(self):
         if self.pause:
@@ -302,7 +450,7 @@ class ClientWindow(QW.QMainWindow):
 
         use_ignorecase = not not re.search(r"[A-Z]", search)
 
-        root_item = self._torrent_list_new.invisibleRootItem()
+        root_item = self._torrent_list.invisibleRootItem()
 
         for i in range(root_item.childCount()):
             item = root_item.child(i)
@@ -312,55 +460,6 @@ class ClientWindow(QW.QMainWindow):
             else:
                 item.setHidden(not re.search(search, item.text(0), re.IGNORECASE))
 
-    def _build_treewidget_recursive(
-        self, nested_struct: CD.NestedTorrentFileDirectory, parent=None
-    ):
-        if parent is None:
-            parent = QW.QTreeWidgetItem(["/"])
-
-        for name, child in nested_struct.children.items():
-            if child.torrents_file:
-                item = QW.QTreeWidgetItem(
-                    [
-                        name,
-                        CD.size_bytes_to_pretty_str(child.size),
-                        f"{child.torrents_file.progress * 100:.2f}%",
-                        CD.get_pretty_download_priority(child.torrents_file.priority),
-                        "",
-                        f"{child.torrents_file.availability}",
-                    ]
-                )
-                item.setData(0, QC.Qt.UserRole, child.torrents_file)
-
-                item.setFlags(item.flags() | QC.Qt.ItemFlag.ItemIsUserCheckable)
-
-                if child.torrents_file.priority == 0:
-                    item.setCheckState(0, QC.Qt.CheckState.Unchecked)
-                else:
-                    p = parent
-                    while p.parent():
-                        p.setCheckState(0, QC.Qt.CheckState.Checked)
-                        p = p.parent()
-                        p.setCheckState(0, QC.Qt.CheckState.Checked)
-
-                    item.setCheckState(0, QC.Qt.CheckState.Checked)
-            else:
-                item = QW.QTreeWidgetItem(
-                    [
-                        name,
-                        CD.size_bytes_to_pretty_str(child.size),
-                        f"{child.get_progress() * 100:.3f}%",
-                    ]
-                )
-                item.setFlags(item.flags() | QC.Qt.ItemFlag.ItemIsUserCheckable)
-                item.setCheckState(0, QC.Qt.CheckState.Unchecked)
-                item.setIcon(0, self.style().standardIcon(QW.QStyle.SP_DirOpenIcon))
-
-            parent.addChild(item)
-
-            self._build_treewidget_recursive(child, item)
-
-        return parent
 
     def get_torrent_tree_widget_item(self, values: dict):
         item = QW.QTreeWidgetItem(
@@ -379,41 +478,25 @@ class ClientWindow(QW.QMainWindow):
         return item
 
     def update_torrent_list(self):
-        if self.pause or not self._controller.is_qbittorrent_ok():
+        if self.pause or not self.CONTROLLER.is_qbittorrent_ok():
             return
-        self._torrent_list_new.clear()
+        self._torrent_list.clear()
 
-        for torrent in self._controller.get_torrents():
-            if not self._controller.torrent_passes_filter(torrent):
+        for torrent in self.CONTROLLER.get_torrents():
+            if not self.CONTROLLER.torrent_passes_filter(torrent):
                 continue
             item = self.get_torrent_tree_widget_item(torrent)
             item.setData(0, QC.Qt.UserRole, torrent.hash)
-            self._torrent_list_new.insertTopLevelItem(0, item)
+            self._torrent_list.insertTopLevelItem(0, item)
 
-    def load_file_for_torrent(self, torrent_hash: str):
-        if self.pause or not self._controller.is_qbittorrent_ok():
-            return
-        data = self._controller.torrent_metadata_cache.get_if_has_data(torrent_hash)
 
-        if data:
-            logging.debug(f"Cache hit for torrent hash: {torrent_hash}")
-            self.set_tree_contents(data, torrent_hash)
-            return
 
-        try:
-            data = self._controller.qbittorrent.torrents_files(torrent_hash)
-
-            self._controller.torrent_metadata_cache.add_data(torrent_hash, data)
-
-            self.set_tree_contents(data, torrent_hash)
-
-        except NotFound404Error:
-            logging.warning(f"Could not find torrent with hash: {torrent_hash}")
 
     def set_tree_contents(self, torrent_file_list: TorrentFilesList, cache_key: str = None):
         if self.pause:
             return
-        self.file_tree.clear()
+
+        self.show_infinite_progress()
 
         nested = None
         if cache_key:
@@ -426,7 +509,9 @@ class ClientWindow(QW.QMainWindow):
         else:
             logging.debug("Cache hit on tree list")
 
-        tree = self._build_treewidget_recursive(nested)
+        tree = self._build_treewidget_recursive(nested, style=self.style())
+
+        self.file_tree.clear()
 
         if tree.childCount() > 0:
             self.file_tree.insertTopLevelItems(0, tree.takeChildren())
@@ -436,3 +521,26 @@ class ClientWindow(QW.QMainWindow):
 
         self.file_tree.resizeColumnToContents(0)
         self.file_tree.sortByColumn(0, QC.Qt.SortOrder.AscendingOrder)
+
+        self.hide_infinite_progress()
+
+
+
+
+    def load_selected_torrents_files(self):
+        self.load_torrents_files_timer.stop()
+        self.load_torrents_files_timer.start(self.LOAD_TORRENTS_FILES_TIMER_INTERVAL_MS)
+
+
+    def show_infinite_progress(self):
+
+        self.infite_progress_bar.progress_value = 10
+        self.infite_progress_bar.setVisible(True)
+        self.infite_progress_bar.start_progress()
+        QW.QApplication.processEvents()
+
+    def hide_infinite_progress(self):
+
+        self.infite_progress_bar.setVisible(False)
+        self.infite_progress_bar.stop_progress()
+        self.infite_progress_bar.reset_progress()

@@ -1,4 +1,5 @@
 import os
+import logging
 import sys
 import qbittorrentapi
 import sys
@@ -15,15 +16,15 @@ from .gui import GUICommon
 from .core import CoreGlobals as CG
 from .core import CoreData as CD
 from .core import CoreController as Controller
-from .core import CoreLogging as logging
+from .core import CoreLogging 
 
 
 
 
 def main():
     load_dotenv()
-    logging.setup_logging()
-    logging.add_unhandled_exception_hook()
+    CoreLogging.setup_logging()
+    CoreLogging.add_unhandled_exception_hook()
 
     client_controller = Controller.ClientController()
     client_controller.boot_everything_base()
@@ -33,7 +34,7 @@ def main():
         
         app = QW.QApplication([])
         app.setPalette( GUICommon.get_darkModePalette(app))
-        mainwindow = GUIClient.ClientWindow(client_controller)
+        mainwindow = GUIClient.ClientWindow()
 
         mainwindow.show()
 
