@@ -28,6 +28,8 @@ def main():
     client_controller.boot_everything_base()
 
     try:
+        GUICommon.enable_hi_dpi()
+        
         app = QW.QApplication([])
         app.setPalette( GUICommon.get_darkModePalette(app))
         mainwindow = GUIClient.ClientWindow(client_controller)
